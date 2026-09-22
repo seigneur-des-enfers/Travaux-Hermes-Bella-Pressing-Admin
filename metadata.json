@@ -1,0 +1,6 @@
+{
+  "name": "Bella Pressing",
+  "description": "Système de gestion pour Bella Pressing, avec accès client et administration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

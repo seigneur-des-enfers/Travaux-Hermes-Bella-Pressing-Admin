@@ -1,0 +1,1 @@
+sed -i 's/GoogleMap(/Box(modifier = Modifier.fillMaxSize().background(Color.LightGray)) { Text("Map is disabled without API Key", modifier = Modifier.align(Alignment.Center)) }\n\/\/ GoogleMap(/g' app/src/main/java/com/example/ui/screens/AuthScreens.kt
