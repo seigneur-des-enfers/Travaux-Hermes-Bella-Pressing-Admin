@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 
 /**
  * ViewModel pour l'administration et les livreurs de Bella Pressing.
@@ -92,8 +93,10 @@ class AdminOrderViewModel(
     val successMessage: StateFlow<String?> = _successMessage.asStateFlow()
 
     init {
-        // Démarrage automatique de la synchronisation temps réel des commandes actives
-        startRealtimeSync()
+        // Démarrage automatique sécurisé sur Dispatchers.IO pour éviter tout blocage UI
+        viewModelScope.launch(Dispatchers.IO) {
+            startRealtimeSync()
+        }
     }
 
     // =========================================================================

@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
@@ -40,14 +41,14 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
     
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.cleanupDuplicates()
             val conf = repository.getConfig().firstOrNull()
             if (conf == null) {
                 repository.insertConfig(ConfigEntity())
             }
         }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.cleanupDuplicates()
             val adminEmail = "admin@bellapressing.com"
             val existingAdmin = repository.getUserByEmail(adminEmail)
@@ -82,7 +83,7 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
     }
 
     fun login(email: String, role: String, onResult: (Int, String?) -> Unit) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             var user = repository.getUserByEmail(email)
             if (user == null) {
                 // FALLBACK: Query Firestore directly for the email to prevent data loss amnesia!
@@ -192,7 +193,7 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
         coordonnees: String,
         onResult: (Boolean) -> Unit
     ) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             var existing = repository.getUserByEmail(email)
             if (existing == null) {
                 // Check Firestore as well to prevent duplicates if local DB was wiped
@@ -1013,7 +1014,7 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
             "deletedAt" to trashEntity.deletedAt,
             "adminResponsible" to trashEntity.adminResponsible
         )
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.insertGlobalTrash(trashEntity)
                 db.collection("global_trash").document(entityId).set(trashDoc, com.google.firebase.firestore.SetOptions.merge()).await()
@@ -1034,7 +1035,7 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
 
     private fun removeFromGlobalTrash(entityId: String, originalCollection: String) {
         val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.deleteGlobalTrash(entityId)
                 db.collection("global_trash").document(entityId).delete().await()
@@ -1054,7 +1055,7 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
 
     private fun hardDeleteFromFirestore(entityId: String, collectionName: String) {
         val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.deleteGlobalTrash(entityId)
                 db.collection("global_trash").document(entityId).delete().await()

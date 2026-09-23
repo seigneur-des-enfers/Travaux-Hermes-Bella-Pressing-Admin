@@ -3,7 +3,8 @@ package com.example.data
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
-class FirestoreService(private val db: FirebaseFirestore = FirebaseFirestore.getInstance()) {
+class FirestoreService {
+    private val db: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
     
     // Commandes (Orders)
     fun getPendingOrders() = db.collection("orders")

@@ -38,13 +38,13 @@ class AdminOrderRepository(
     private val orderDao: OrderDao,
     private val pendingActionDao: PendingActionDao,
     private val appContext: Context? = null,
-    private val db: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 ) {
+    private val db: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
     private val ioScope = CoroutineScope(Dispatchers.IO)
     private val gson = Gson()
 
