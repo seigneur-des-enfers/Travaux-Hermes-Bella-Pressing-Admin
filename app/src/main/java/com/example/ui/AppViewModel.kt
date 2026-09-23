@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import com.google.firebase.firestore.FirebaseFirestore
@@ -161,7 +162,9 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
 
             if (user != null && (user.role == role || (role == "ADMIN" && user.role == "SUPER_ADMIN"))) {
                 if (user.isArchived) {
-                    onResult(1, null) // Archived user cannot login
+                    withContext(Dispatchers.Main) {
+                        onResult(1, null) // Archived user cannot login
+                    }
                     return@launch
                 }
                 if (user.isSuspended) {
@@ -169,16 +172,24 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
                         val unSuspended = user.copy(isSuspended = false, suspensionReason = "", suspensionUntil = null)
                         updateUser(unSuspended)
                         _currentUser.value = unSuspended
-                        onResult(0, null)
+                        withContext(Dispatchers.Main) {
+                            onResult(0, null)
+                        }
                     } else {
-                        onResult(2, user.suspensionReason) // Suspended
+                        withContext(Dispatchers.Main) {
+                            onResult(2, user.suspensionReason) // Suspended
+                        }
                     }
                 } else {
                     _currentUser.value = user
-                    onResult(0, null) // Success
+                    withContext(Dispatchers.Main) {
+                        onResult(0, null) // Success
+                    }
                 }
             } else {
-                onResult(1, null) // Invalid
+                withContext(Dispatchers.Main) {
+                    onResult(1, null) // Invalid
+                }
             }
         }
     }
@@ -227,7 +238,9 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
             }
 
             if (existing != null) {
-                onResult(false) // Already exists
+                withContext(Dispatchers.Main) {
+                    onResult(false) // Already exists
+                }
             } else {
                 val newUser = UserEntity(
                     role = role,
@@ -240,7 +253,9 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
                 )
                 insertUser(newUser)
                 _currentUser.value = newUser
-                onResult(true)
+                withContext(Dispatchers.Main) {
+                    onResult(true)
+                }
             }
         }
     }
