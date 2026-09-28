@@ -11,6 +11,10 @@ jobs:
     name: Build & Package APK
     runs-on: ubuntu-latest
 
+    # FORÇAGE ABSOLU SUR TOUS LES SOUS-PROCESSUS (GRADLE, KOTLIN, KSP)
+    env:
+      _JAVA_OPTIONS: "-Xmx4g -Djava.awt.headless=true -XX:+UseParallelGC"
+
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
@@ -25,8 +29,9 @@ jobs:
       - name: Rendre le wrapper Gradle exécutable
         run: chmod +x ./gradlew
 
-      - name: Compilation de l'APK (Purge Cache & Headless)
-        run: ./gradlew clean assembleDebug --no-daemon --no-build-cache --rerun-tasks
+      - name: Compilation de l'APK (Purge Cache, AVEC Daemon)
+        # SUPPRESSION CRITIQUE de --no-daemon pour éviter le crash du contexte IntelliJ de KSP
+        run: ./gradlew clean assembleDebug --no-build-cache
 
       - name: Upload de l'APK
         uses: actions/upload-artifact@v4
