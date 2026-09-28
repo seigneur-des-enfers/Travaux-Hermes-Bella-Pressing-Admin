@@ -1,9 +1,14 @@
 package com.example.data
 
+import androidx.annotation.Keep
+import com.google.firebase.firestore.IgnoreExtraProperties
+
 /**
  * Data Transfer Object (DTO) pour la synchronisation Firestore et la sérialisation
  * Offline-First (PendingActionEntity) de la configuration générale et du programme de fidélité.
  */
+@Keep
+@IgnoreExtraProperties
 data class ConfigDto(
     val id: String = "global_config",
     val baseTransportFee: Float = 1000f,

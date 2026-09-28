@@ -1,12 +1,16 @@
 package com.example.data
 
+import androidx.annotation.Keep
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.IgnoreExtraProperties
 
 /**
  * Data Transfer Object (DTO) pour la synchronisation Firestore des commandes.
  * Représente la structure des documents dans les collections 'orders' et 'ordres'.
  */
+@Keep
+@IgnoreExtraProperties
 data class OrderDto(
     val id: String = "",
     val userId: String = "",

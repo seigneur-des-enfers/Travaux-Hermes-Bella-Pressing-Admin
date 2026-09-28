@@ -1,21 +1,23 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Garder tous les modèles de données Firestore et Room
+-keep class com.example.data.** { *; }
+-keepclassmembers class com.example.data.** { *; }
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Préserver les annotations Firebase et Android
+-keepattributes *Annotation*, Signature, InnerClasses, EnclosingMethod
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Sanctuariser les classes Firebase Firestore
+-keep class com.google.firebase.firestore.** { *; }
+-keepclassmembers class com.google.firebase.firestore.** { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Préserver les constructeurs sans argument pour la réflexion de désérialisation
+-keepclassmembers class * {
+    @com.google.firebase.firestore.PropertyName <fields>;
+    @com.google.firebase.firestore.DocumentId <fields>;
+    <init>();
+}
+
+# Garder toutes les classes annotées @Keep
+-keep @androidx.annotation.Keep class * { *; }
+-keepclassmembers class * {
+    @androidx.annotation.Keep *;
+}

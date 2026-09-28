@@ -1,9 +1,14 @@
 package com.example.data
 
+import androidx.annotation.Keep
+import com.google.firebase.firestore.IgnoreExtraProperties
+
 /**
  * Data Transfer Object (DTO) pour la synchronisation Firestore et la sérialisation
  * Offline-First (PendingActionEntity) des utilisateurs (Clients et Admins).
  */
+@Keep
+@IgnoreExtraProperties
 data class UserDto(
     val id: String = "",
     val role: String = "CLIENT",

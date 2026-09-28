@@ -1,18 +1,22 @@
 package com.example.data
 
+import androidx.annotation.Keep
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.google.firebase.firestore.IgnoreExtraProperties
 import java.util.UUID
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "users")
 data class UserEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val role: String, // "CLIENT", "ADMIN", "SUPER_ADMIN"
-    val nom: String,
-    val prenom: String,
-    val email: String,
-    val telephone: String,
-    val motDePasse: String,
+    val role: String = "CLIENT", // "CLIENT", "ADMIN", "SUPER_ADMIN"
+    val nom: String = "",
+    val prenom: String = "",
+    val email: String = "",
+    val telephone: String = "",
+    val motDePasse: String = "",
     val coordonnees: String = "",
     val token: String = UUID.randomUUID().toString(),
     val fidelityPointsKg: Float = 0f,
@@ -134,14 +138,16 @@ data class UserEntity(
     val raisonSuspension: String = ""
 )
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "orders")
 data class OrderEntity(
     @PrimaryKey val id: String = java.util.UUID.randomUUID().toString(),
-    val userId: String,
-    val pieces: Int,
-    val categorie: String,
+    val userId: String = "",
+    val pieces: Int = 0,
+    val categorie: String = "",
     val kg: Float = 0f,
-    val lavageType: String, // "SIMPLE", "LAVAGE_SECHAGE_PLIAGE", "LAVAGE_SECHAGE_REPASSAGE_PLIAGE", "AUCUN"
+    val lavageType: String = "SIMPLE", // "SIMPLE", "LAVAGE_SECHAGE_PLIAGE", "LAVAGE_SECHAGE_REPASSAGE_PLIAGE", "AUCUN"
     val prixFinal: Float = 0f,
     val status: String = "EN_ATTENTE", // "EN_ATTENTE", "ACCEPTE", "EN_COURS", "TERMINE", "REJETE"
     val createdAt: Long = System.currentTimeMillis(),
@@ -220,6 +226,8 @@ data class OrderEntity(
     val deliveryAddress: String = ""
 )
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "config")
 data class ConfigEntity(
     @PrimaryKey val id: String = "global_config",
@@ -275,13 +283,15 @@ data class ConfigEntity(
     val loyaltyExpirationDays: Int = 90
 )
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "anti_fraud_rules")
 data class AntiFraudRuleEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val triggerEvent: String,
-    val threshold: Int,
-    val durationHours: Int,
+    val name: String = "",
+    val triggerEvent: String = "",
+    val threshold: Int = 0,
+    val durationHours: Int = 0,
     val action: String = "BAN",
     val isActive: Boolean = true,
     val isArchived: Boolean = false,
@@ -294,28 +304,34 @@ data class AntiFraudRuleEntity(
     val actionAntiFraud: String = ""
 )
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "special_items")
 data class SpecialItemEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val price: Float,
+    val name: String = "",
+    val price: Float = 0f,
     val isArchived: Boolean = false
 )
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "gommage_items")
 data class GommageItemEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val price: Float,
+    val name: String = "",
+    val price: Float = 0f,
     val isArchived: Boolean = false
 )
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "consumables")
 data class ConsumableEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val quantity: Int,
-    val threshold: Int,
+    val name: String = "",
+    val quantity: Int = 0,
+    val threshold: Int = 0,
     val isPublic: Boolean = false,
     val isArchived: Boolean = false,
 
@@ -327,11 +343,13 @@ data class ConsumableEntity(
     val newStocksPrivee: Boolean = true
 )
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "promos")
 data class PromoEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val code: String,
-    val description: String,
+    val code: String = "",
+    val description: String = "",
     val discountPercent: Float = 0f,
     val freeKg: Float = 0f,
     val minOrderValue: Float = 0f,
@@ -343,13 +361,15 @@ data class PromoEntity(
     val isArchived: Boolean = false
 )
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "rules")
 data class RuleEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val triggerCondition: String,
-    val actionType: String,
-    val actionValue: String,
+    val name: String = "",
+    val triggerCondition: String = "",
+    val actionType: String = "",
+    val actionValue: String = "",
     val constraints: String = "",
     val isActive: Boolean = true,
     val isPermanent: Boolean = true,
@@ -357,22 +377,26 @@ data class RuleEntity(
     val isArchived: Boolean = false
 )
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "activity_logs")
 data class ActivityLogEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val userId: String,
+    val userId: String = "",
     val orderId: String? = null,
-    val action: String,
-    val description: String,
+    val action: String = "",
+    val description: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val actorId: String? = null
 )
 
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "announcements")
 data class AnnouncementEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val title: String,
-    val message: String,
+    val title: String = "",
+    val message: String = "",
     val imageUrl: String = "",
     val isVisible: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
@@ -384,14 +408,18 @@ data class AnnouncementEntity(
 )
 
 // --- NOUVEAU SCHÉMA: BLOC CategiriesLingeSaved ---
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "categories_linge_saved")
 data class CategoriesLingeSavedEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val newCategorieLinge: String,
+    val newCategorieLinge: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
 
 // --- NOUVEAU SCHÉMA: BLOC TableauDeBord ---
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "tableau_de_bord")
 data class TableauDeBordEntity(
     @PrimaryKey val id: String = "global_dashboard",
@@ -404,6 +432,8 @@ data class TableauDeBordEntity(
 )
 
 // --- NOUVEAU SCHÉMA: BLOC OrdersHistory ---
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "orders_history")
 data class OrdersHistoryEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
@@ -416,12 +446,14 @@ data class OrdersHistoryEntity(
 )
 
 // --- NOUVEAU SCHÉMA: BLOC ArchivesGlobals ---
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "global_trash")
 data class GlobalTrashEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val originalId: String,
-    val itemType: String, // "USER", "ORDER", "CATALOG_SPECIAL", "CATALOG_GOMMAGE", "CONSUMABLE", "PROMO", "RULE", "ANTI_FRAUD"
-    val title: String,
+    val originalId: String = "",
+    val itemType: String = "", // "USER", "ORDER", "CATALOG_SPECIAL", "CATALOG_GOMMAGE", "CONSUMABLE", "PROMO", "RULE", "ANTI_FRAUD"
+    val title: String = "",
     val details: String = "",
     val deletedAt: Long = System.currentTimeMillis(),
     val adminResponsible: String = "",

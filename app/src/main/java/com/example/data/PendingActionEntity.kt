@@ -1,7 +1,9 @@
 package com.example.data
 
+import androidx.annotation.Keep
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.google.firebase.firestore.IgnoreExtraProperties
 import java.util.UUID
 
 /**
@@ -9,11 +11,13 @@ import java.util.UUID
  * Permet de différer et de rejouer de manière idempotente toutes les modifications Administrateur
  * vers Firestore dès que le réseau ou le quota est rétabli.
  */
+@Keep
+@IgnoreExtraProperties
 @Entity(tableName = "pending_actions")
 data class PendingActionEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
-    val actionType: String,
-    val payloadJson: String,
+    val actionType: String = "",
+    val payloadJson: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val retryCount: Int = 0
 )
