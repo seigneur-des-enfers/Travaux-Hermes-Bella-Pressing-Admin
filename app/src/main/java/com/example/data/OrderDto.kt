@@ -155,7 +155,30 @@ object OrderMapper {
 
         val createdAtMillis = parseTimestampToLong(doc.get("createdAt") ?: doc.get("dateCreation") ?: doc.get("timestamp"))
 
-        val statusVal = doc.getString("status") ?: doc.getString("statut") ?: "EN_ATTENTE"
+        val rawStatus = doc.getString("status") ?: doc.getString("statut") ?: "EN_ATTENTE"
+        val clientAccepted = doc.getBoolean("clientAccepted") == true ||
+            doc.getBoolean("accordClient") == true ||
+            doc.getBoolean("clientValidation") == true ||
+            doc.getBoolean("validationClient") == true ||
+            doc.getBoolean("propositionAcceptee") == true
+
+        val clientRefused = doc.getBoolean("clientRefused") == true ||
+            doc.getBoolean("refusClient") == true ||
+            doc.getBoolean("propositionRefusee") == true
+
+        val statusVal = when {
+            clientRefused -> "REJETE"
+            clientAccepted && (rawStatus.equals("PROPOSITION_ADMIN", ignoreCase = true) || rawStatus.equals("EN_ATTENTE", ignoreCase = true)) -> "ACCEPTE"
+            else -> when (rawStatus.uppercase().trim()) {
+                "ACCEPTE", "ACCEPTEE", "ACCEPTÉ", "ACCEPTÉE", "ACCEPTED", "VALIDEE", "VALIDÉE", "CONFIRMEE", "CONFIRMÉE", "CLIENT_ACCEPTE", "PROPOSITION_ACCEPTEE" -> "ACCEPTE"
+                "REJETE", "REJETEE", "REJETÉ", "REJETÉE", "REJECTED", "ANNULE", "ANNULÉE", "REFUSE", "REFUSEE", "REFUSÉE", "PROPOSITION_REFUSEE" -> "REJETE"
+                "EN_COURS", "IN_PROGRESS", "LAVAGE" -> "EN_COURS"
+                "PRET", "PRÊT", "PRETE", "PRÊTE", "READY" -> "PRET"
+                "TERMINE", "TERMINEE", "TERMINÉ", "TERMINÉE", "LIVRE", "LIVREE", "LIVRÉ", "LIVRÉE", "FINISHED", "DONE" -> "TERMINE"
+                "PROPOSITION_ADMIN", "DEVIS_ENVOYE", "ATTENTE_CLIENT" -> "PROPOSITION_ADMIN"
+                else -> rawStatus
+            }
+        }
 
         return OrderEntity(
             id = doc.id,

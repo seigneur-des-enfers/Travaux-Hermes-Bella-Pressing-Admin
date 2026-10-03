@@ -1630,7 +1630,7 @@ fun AdminOrdersTab(padding: PaddingValues, allOrders: List<OrderEntity>, viewMod
     // Group orders by client (userId)
     val clientOrderGroups = filteredOrders.groupBy { it.userId }.entries.sortedByDescending { entry ->
         val clientOrders = entry.value
-        val newCount = clientOrders.count { it.status == "EN_ATTENTE" || it.status == "PROPOSITION_ADMIN" }
+        val newCount = clientOrders.count { it.status == "EN_ATTENTE" || it.status == "PROPOSITION_ADMIN" || it.status == "ACCEPTE" }
         val lastTimestamp = clientOrders.maxOfOrNull { it.createdAt } ?: 0L
         if (newCount > 0) (10000000000000L + newCount * 1000000000L + lastTimestamp) else lastTimestamp
     }
@@ -1729,8 +1729,8 @@ fun ClientOrderInboxCard(
     var isExpanded by remember { mutableStateOf(false) }
     var activeMenuSection by remember { mutableStateOf<String?>(null) } // "NEW", "OLD", "HISTORY", "LOGS", "ACTIONS"
 
-    val newOrders = clientOrders.filter { it.status == "EN_ATTENTE" || it.status == "PROPOSITION_ADMIN" }
-    val oldOrders = clientOrders.filter { it.status != "EN_ATTENTE" && it.status != "PROPOSITION_ADMIN" }
+    val newOrders = clientOrders.filter { it.status == "EN_ATTENTE" || it.status == "PROPOSITION_ADMIN" || it.status == "ACCEPTE" }
+    val oldOrders = clientOrders.filter { it.status != "EN_ATTENTE" && it.status != "PROPOSITION_ADMIN" && it.status != "ACCEPTE" }
     val newCount = newOrders.size
     val lastOrder = clientOrders.maxByOrNull { it.createdAt }
     val logs by viewModel.getActivityLogsForUser(userId).collectAsStateWithLifecycle(initialValue = emptyList<ActivityLogEntity>())
@@ -2664,11 +2664,29 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
                         }
                     } else if (order.status == "ACCEPTE" && canManageOrders) {
                         Spacer(modifier = Modifier.height(16.dp))
+                        Surface(
+                            color = Color(0xFFE8F5E9),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("✅ Le client a validé la commande !", color = Color(0xFF1B5E20), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                    Text("Le devis proposé (${order.kg} Kg • ${order.prixFinal.toInt()} FCFA) a été accepté. Vous pouvez lancer le traitement.", color = Color(0xFF2E7D32), style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
                         Button(
                             onClick = { viewModel.updateOrder(order.copy(status = "EN_COURS", timelineStep = 2)) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("En Plein lavage")
+                            Text("Démarrer le lavage (En Plein lavage)")
                         }
                     } else if (order.status == "EN_COURS" && canManageOrders) {
                         Spacer(modifier = Modifier.height(16.dp))

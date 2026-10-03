@@ -229,8 +229,8 @@ class FirestoreSyncManager(
             }
         }
 
-        // ORDERS & ORDRES DUAL LISTENER
-        val ordersCollections = listOf("orders", "ordres")
+        // ORDERS, ORDRES & COMMANDES MULTI-COLLECTION LISTENER
+        val ordersCollections = listOf("orders", "ordres", "commandes")
         for (colName in ordersCollections) {
             db.collection(colName).addSnapshotListener { snapshot, e ->
                 if (e != null || snapshot == null) return@addSnapshotListener

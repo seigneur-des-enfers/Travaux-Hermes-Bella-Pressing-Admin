@@ -111,7 +111,7 @@ class AdminOrderRepository(
     fun syncActiveOrdersRealtime(): ListenerRegistration? {
         if (activeOrdersListener != null) return activeOrdersListener
 
-        val activeStatuses = listOf("EN_ATTENTE", "EN_COURS", "PRET", "ACCEPTE", "EN_LIVRAISON")
+        val activeStatuses = listOf("EN_ATTENTE", "PROPOSITION_ADMIN", "EN_COURS", "PRET", "ACCEPTE", "EN_LIVRAISON")
 
         activeOrdersListener = db.collection("orders")
             .whereIn("status", activeStatuses)
