@@ -1,6 +1,7 @@
 package com.example.data
 
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.tasks.await
 
 class FirestoreService {
@@ -17,12 +18,36 @@ class FirestoreService {
             "prixFinal" to newPrice,
             "status" to "TRAITEMENT"
         )
-        try { db.collection("orders").document(orderId).update(map).await() } catch (_: Throwable) {}
-        try { db.collection("ordres").document(orderId).update(map).await() } catch (_: Throwable) {}
+        try { 
+            db.collection("orders").document(orderId).update(map).await() 
+        } catch (e: Exception) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                FirestoreSyncManager.triggerQuotaExhausted()
+            }
+        }
+        try { 
+            db.collection("ordres").document(orderId).update(map).await() 
+        } catch (e: Exception) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                FirestoreSyncManager.triggerQuotaExhausted()
+            }
+        }
     }
 
     suspend fun updateOrderStatus(orderId: String, status: String) {
-        try { db.collection("orders").document(orderId).update("status", status).await() } catch (_: Throwable) {}
-        try { db.collection("ordres").document(orderId).update("status", status).await() } catch (_: Throwable) {}
+        try { 
+            db.collection("orders").document(orderId).update("status", status).await() 
+        } catch (e: Exception) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                FirestoreSyncManager.triggerQuotaExhausted()
+            }
+        }
+        try { 
+            db.collection("ordres").document(orderId).update("status", status).await() 
+        } catch (e: Exception) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                FirestoreSyncManager.triggerQuotaExhausted()
+            }
+        }
     }
 }

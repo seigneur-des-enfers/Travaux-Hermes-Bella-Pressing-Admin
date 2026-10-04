@@ -35,6 +35,17 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 class AppViewModel(private val repository: AppRepository) : ViewModel() {
+    private val _isFirestoreQuotaExhausted = MutableStateFlow(false)
+    val isFirestoreQuotaExhausted: StateFlow<Boolean> = _isFirestoreQuotaExhausted.asStateFlow()
+
+    fun triggerQuotaAlert() {
+        _isFirestoreQuotaExhausted.value = true
+    }
+
+    fun dismissQuotaAlert() {
+        _isFirestoreQuotaExhausted.value = false
+    }
+
     private val _currentUser = MutableStateFlow<UserEntity?>(null)
     val currentUser = _currentUser.asStateFlow()
     val allAnnouncements = repository.allAnnouncements.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
@@ -42,6 +53,13 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
     
 
     init {
+        viewModelScope.launch {
+            com.example.data.FirestoreSyncManager.isQuotaExhausted.collect { isExhausted ->
+                if (isExhausted) {
+                    triggerQuotaAlert()
+                }
+            }
+        }
         viewModelScope.launch(Dispatchers.IO) {
             repository.cleanupDuplicates()
             val conf = repository.getConfig().firstOrNull()

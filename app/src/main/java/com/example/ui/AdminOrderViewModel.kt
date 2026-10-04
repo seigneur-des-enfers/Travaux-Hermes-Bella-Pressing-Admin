@@ -31,6 +31,13 @@ class AdminOrderViewModel(
         private const val TAG = "AdminOrderViewModel"
     }
 
+    private val _isFirestoreQuotaExhausted = MutableStateFlow(false)
+    val isFirestoreQuotaExhausted: StateFlow<Boolean> = _isFirestoreQuotaExhausted.asStateFlow()
+
+    fun triggerQuotaAlert() {
+        _isFirestoreQuotaExhausted.value = true
+    }
+
     // Référence au listener Firestore actif pour libération dans onCleared
     private var activeOrdersListener: ListenerRegistration? = null
 

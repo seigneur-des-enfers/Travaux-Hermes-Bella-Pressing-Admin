@@ -7,6 +7,9 @@ import com.google.firebase.firestore.DocumentSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.concurrent.ConcurrentHashMap
@@ -23,8 +26,24 @@ class FirestoreSyncManager(
     private var firestore: FirebaseFirestore? = null
     private val activeListeners = Collections.synchronizedList(mutableListOf<ListenerRegistration>())
 
+    companion object {
+        private val _isQuotaExhausted = MutableStateFlow(false)
+        val isQuotaExhausted: StateFlow<Boolean> = _isQuotaExhausted.asStateFlow()
+
+        fun triggerQuotaExhausted() {
+            _isQuotaExhausted.value = true
+        }
+
+        fun resetQuotaExhausted() {
+            _isQuotaExhausted.value = false
+        }
+    }
+
     private fun handleCriticalFirestoreError(e: FirebaseFirestoreException?) {
         if (e == null) return
+        if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+            triggerQuotaExhausted()
+        }
         if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED ||
             e.code == FirebaseFirestoreException.Code.UNAVAILABLE ||
             e.code == FirebaseFirestoreException.Code.DEADLINE_EXCEEDED
@@ -72,7 +91,14 @@ class FirestoreSyncManager(
         val usersCollections = listOf("users", "utilisateurs")
         for (colName in usersCollections) {
             db.collection(colName).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null) return@addSnapshotListener
+                if (e != null) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        triggerQuotaExhausted()
+                    }
+                    handleCriticalFirestoreError(e)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null) return@addSnapshotListener
                 scope.launch {
                     for (change in snapshot.documentChanges) {
                         val doc = change.document
@@ -233,7 +259,14 @@ class FirestoreSyncManager(
         val ordersCollections = listOf("orders", "ordres", "commandes")
         for (colName in ordersCollections) {
             db.collection(colName).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null) return@addSnapshotListener
+                if (e != null) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        triggerQuotaExhausted()
+                    }
+                    handleCriticalFirestoreError(e)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null) return@addSnapshotListener
                 scope.launch {
                     for (change in snapshot.documentChanges) {
                         val doc = change.document
@@ -259,7 +292,14 @@ class FirestoreSyncManager(
         val promoCollections = listOf("promotions", "promos")
         for (colName in promoCollections) {
             db.collection(colName).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null) return@addSnapshotListener
+                if (e != null) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        triggerQuotaExhausted()
+                    }
+                    handleCriticalFirestoreError(e)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null) return@addSnapshotListener
                 scope.launch {
                     for (change in snapshot.documentChanges) {
                         val doc = change.document
@@ -297,7 +337,14 @@ class FirestoreSyncManager(
         val annCollections = listOf("announcements", "annonces")
         for (colName in annCollections) {
             db.collection(colName).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null) return@addSnapshotListener
+                if (e != null) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        triggerQuotaExhausted()
+                    }
+                    handleCriticalFirestoreError(e)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null) return@addSnapshotListener
                 scope.launch {
                     for (change in snapshot.documentChanges) {
                         val doc = change.document
@@ -332,7 +379,14 @@ class FirestoreSyncManager(
         val catalogCollections = listOf("catalog", "catalogue")
         for (colName in catalogCollections) {
             db.collection(colName).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null) return@addSnapshotListener
+                if (e != null) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        triggerQuotaExhausted()
+                    }
+                    handleCriticalFirestoreError(e)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null) return@addSnapshotListener
                 scope.launch {
                     for (change in snapshot.documentChanges) {
                         val doc = change.document
@@ -380,7 +434,14 @@ class FirestoreSyncManager(
         val stockCollections = listOf("stocks", "stock")
         for (colName in stockCollections) {
             db.collection(colName).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null) return@addSnapshotListener
+                if (e != null) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        triggerQuotaExhausted()
+                    }
+                    handleCriticalFirestoreError(e)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null) return@addSnapshotListener
                 scope.launch {
                     for (change in snapshot.documentChanges) {
                         val doc = change.document
@@ -432,7 +493,14 @@ class FirestoreSyncManager(
         val autoRuleCollections = listOf("automation_rules", "regles")
         for (colName in autoRuleCollections) {
             db.collection(colName).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null) return@addSnapshotListener
+                if (e != null) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        triggerQuotaExhausted()
+                    }
+                    handleCriticalFirestoreError(e)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null) return@addSnapshotListener
                 scope.launch {
                     for (change in snapshot.documentChanges) {
                         val doc = change.document
@@ -468,7 +536,14 @@ class FirestoreSyncManager(
         val antiFraudCollections = listOf("anti_fraud_rules", "regles_anti_fraude")
         for (colName in antiFraudCollections) {
             db.collection(colName).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null) return@addSnapshotListener
+                if (e != null) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        triggerQuotaExhausted()
+                    }
+                    handleCriticalFirestoreError(e)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null) return@addSnapshotListener
                 scope.launch {
                     for (change in snapshot.documentChanges) {
                         val doc = change.document
@@ -505,7 +580,14 @@ class FirestoreSyncManager(
 
         // CATEGORIES LINGE SAVED LISTENER
         db.collection("categories_linge_saved").addSnapshotListener { snapshot, e ->
-            if (e != null || snapshot == null) return@addSnapshotListener
+            if (e != null) {
+                if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                    triggerQuotaExhausted()
+                }
+                handleCriticalFirestoreError(e)
+                return@addSnapshotListener
+            }
+            if (snapshot == null) return@addSnapshotListener
             scope.launch {
                 for (change in snapshot.documentChanges) {
                     val doc = change.document
@@ -533,7 +615,14 @@ class FirestoreSyncManager(
         val configCollections = listOf("config", "general_settings")
         for (colName in configCollections) {
             db.collection(colName).document("main").addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                if (e != null) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        triggerQuotaExhausted()
+                    }
+                    handleCriticalFirestoreError(e)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
                 scope.launch {
                     try {
                         val doc = snapshot
@@ -636,7 +725,14 @@ class FirestoreSyncManager(
 
         // TABLEAU DE BORD LISTENER
         db.collection("tableau_de_bord").addSnapshotListener { snapshot, e ->
-            if (e != null || snapshot == null || snapshot.isEmpty) return@addSnapshotListener
+            if (e != null) {
+                if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                    triggerQuotaExhausted()
+                }
+                handleCriticalFirestoreError(e)
+                return@addSnapshotListener
+            }
+            if (snapshot == null || snapshot.isEmpty) return@addSnapshotListener
             scope.launch {
                 for (change in snapshot.documentChanges) {
                     val doc = change.document
@@ -664,7 +760,14 @@ class FirestoreSyncManager(
 
         // ORDERS HISTORY LISTENER
         db.collection("orders_history").addSnapshotListener { snapshot, e ->
-            if (e != null || snapshot == null || snapshot.isEmpty) return@addSnapshotListener
+            if (e != null) {
+                if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                    triggerQuotaExhausted()
+                }
+                handleCriticalFirestoreError(e)
+                return@addSnapshotListener
+            }
+            if (snapshot == null || snapshot.isEmpty) return@addSnapshotListener
             scope.launch {
                 for (change in snapshot.documentChanges) {
                     val doc = change.document
@@ -694,7 +797,14 @@ class FirestoreSyncManager(
         val trashCollections = listOf("global_trash", "corbeille_globale")
         for (colName in trashCollections) {
             db.collection(colName).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null || snapshot.isEmpty) return@addSnapshotListener
+                if (e != null) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        triggerQuotaExhausted()
+                    }
+                    handleCriticalFirestoreError(e)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null || snapshot.isEmpty) return@addSnapshotListener
                 scope.launch {
                     for (change in snapshot.documentChanges) {
                         val doc = change.document
@@ -726,7 +836,14 @@ class FirestoreSyncManager(
 
         // ACTIVITY LOGS REAL-TIME LISTENER
         db.collection("activity_logs").addSnapshotListener { snapshot, e ->
-            if (e != null || snapshot == null) return@addSnapshotListener
+            if (e != null) {
+                if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                    triggerQuotaExhausted()
+                }
+                handleCriticalFirestoreError(e)
+                return@addSnapshotListener
+            }
+            if (snapshot == null) return@addSnapshotListener
             scope.launch {
                 for (change in snapshot.documentChanges) {
                     val doc = change.document
@@ -1016,6 +1133,9 @@ class FirestoreSyncManager(
             db.collection("orders").document(order.id).set(orderMap, SetOptions.merge()).await()
             db.collection("ordres").document(order.id).set(orderMap, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1175,6 +1295,9 @@ class FirestoreSyncManager(
                 }
             }
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1232,6 +1355,9 @@ class FirestoreSyncManager(
             db.collection("general_settings").document("main").set(configMap, SetOptions.merge()).await()
             db.collection("config").document("main").set(configMap, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1255,6 +1381,9 @@ class FirestoreSyncManager(
             db.collection("promotions").document(promo.id).set(promoMap, SetOptions.merge()).await()
             db.collection("promos").document(promo.id).set(promoMap, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1275,6 +1404,9 @@ class FirestoreSyncManager(
             db.collection("announcements").document(ann.id).set(annMap, SetOptions.merge()).await()
             db.collection("annonces").document(ann.id).set(annMap, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1291,6 +1423,9 @@ class FirestoreSyncManager(
             db.collection("catalog").document(item.id).set(itemMap, SetOptions.merge()).await()
             db.collection("catalogue").document(item.id).set(itemMap, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1307,6 +1442,9 @@ class FirestoreSyncManager(
             db.collection("catalog").document(item.id).set(map, SetOptions.merge()).await()
             db.collection("catalogue").document(item.id).set(map, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1329,6 +1467,9 @@ class FirestoreSyncManager(
             db.collection("stocks").document(c.id).set(map, SetOptions.merge()).await()
             db.collection("stock").document(c.id).set(map, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1350,6 +1491,9 @@ class FirestoreSyncManager(
             db.collection("automation_rules").document(r.id).set(map, SetOptions.merge()).await()
             db.collection("regles").document(r.id).set(map, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1374,6 +1518,9 @@ class FirestoreSyncManager(
             db.collection("anti_fraud_rules").document(r.id).set(map, SetOptions.merge()).await()
             db.collection("regles_anti_fraude").document(r.id).set(map, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1387,6 +1534,9 @@ class FirestoreSyncManager(
             )
             db.collection("categories_linge_saved").document(cat.id).set(map, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1404,6 +1554,9 @@ class FirestoreSyncManager(
             )
             db.collection("tableau_de_bord").document(tdb.id).set(map, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1421,6 +1574,9 @@ class FirestoreSyncManager(
             )
             db.collection("orders_history").document(hist.id).set(map, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1440,6 +1596,9 @@ class FirestoreSyncManager(
             db.collection("global_trash").document(trash.id).set(map, SetOptions.merge()).await()
             db.collection("corbeille_globale").document(trash.id).set(map, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }
@@ -1457,6 +1616,9 @@ class FirestoreSyncManager(
             )
             db.collection("activity_logs").document(log.id).set(map, SetOptions.merge()).await()
         } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                triggerQuotaExhausted()
+            }
             e.printStackTrace()
         }
     }

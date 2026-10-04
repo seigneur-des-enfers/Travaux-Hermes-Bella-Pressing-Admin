@@ -143,6 +143,7 @@ fun AdminDashboard(
     val allOrders by viewModel.allOrders.collectAsStateWithLifecycle()
     val allClients by viewModel.allClients.collectAsStateWithLifecycle()
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val isFirestoreQuotaExhausted by viewModel.isFirestoreQuotaExhausted.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableStateOf("COMMANDES") }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -302,7 +303,41 @@ fun AdminDashboard(
             }
         ) { padding ->
             Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-                QuotaExceededBanner()
+                if (isFirestoreQuotaExhausted) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFD32F2F)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "⚠️ ALERTE CRITIQUE : QUOTA FIRESTORE ÉPUISÉ",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "L'application a dépassé sa limite quotidienne gratuite de lectures/écritures sur Firebase. Les données ne sont plus synchronisées. Veuillez patienter jusqu'à demain ou augmenter votre plan Firebase (Blaze).",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White
+                            )
+                        }
+                    }
+                } else {
+                    QuotaExceededBanner()
+                }
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     val zeroPadding = PaddingValues(0.dp)
                     when (selectedTab) {
@@ -2069,7 +2104,8 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
     val allPromos by viewModel.allPromos.collectAsStateWithLifecycle()
     val allClients by viewModel.allClients.collectAsStateWithLifecycle()
     val client = allClients.find { it.id == order.userId }
-    val canManageOrders = hasPermission(currentUser, "GERER_COMMANDES")
+    val isFirestoreQuotaExhausted by viewModel.isFirestoreQuotaExhausted.collectAsStateWithLifecycle()
+    val canManageOrders = hasPermission(currentUser, "GERER_COMMANDES") && !isFirestoreQuotaExhausted
     
     var isEditing by remember { mutableStateOf(false) }
     

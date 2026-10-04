@@ -117,6 +117,9 @@ class AdminOrderRepository(
             .whereIn("status", activeStatuses)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
+                    if (error.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        FirestoreSyncManager.triggerQuotaExhausted()
+                    }
                     if (error.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED ||
                         error.code == FirebaseFirestoreException.Code.UNAVAILABLE ||
                         error.code == FirebaseFirestoreException.Code.DEADLINE_EXCEEDED
@@ -234,6 +237,9 @@ class AdminOrderRepository(
             Result.success(entities)
         } catch (e: Throwable) {
             if (e is FirebaseFirestoreException && (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED || e.code == FirebaseFirestoreException.Code.UNAVAILABLE)) {
+                if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                    FirestoreSyncManager.triggerQuotaExhausted()
+                }
                 _isQuotaExceeded.value = true
                 stopRealtimeSync()
                 appContext?.let { QuotaRetryWorker.enqueueWork(it) }
@@ -326,6 +332,9 @@ class AdminOrderRepository(
         } catch (e: Throwable) {
             Log.w(TAG, "Échec mise à jour directe Firestore ($orderId). Conservé en file locale: ${e.message}")
             if (e is FirebaseFirestoreException && (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED || e.code == FirebaseFirestoreException.Code.UNAVAILABLE)) {
+                if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                    FirestoreSyncManager.triggerQuotaExhausted()
+                }
                 _isQuotaExceeded.value = true
                 stopRealtimeSync()
             }
@@ -406,6 +415,9 @@ class AdminOrderRepository(
         } catch (e: Throwable) {
             Log.w(TAG, "Échec mise à jour poids directe ($orderId). En file locale: ${e.message}")
             if (e is FirebaseFirestoreException && (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED || e.code == FirebaseFirestoreException.Code.UNAVAILABLE)) {
+                if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                    FirestoreSyncManager.triggerQuotaExhausted()
+                }
                 _isQuotaExceeded.value = true
                 stopRealtimeSync()
             }
