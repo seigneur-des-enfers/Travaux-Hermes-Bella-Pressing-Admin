@@ -212,7 +212,7 @@ class AdminOrderRepository(
     /**
      * Récupère l'historique ponctuel sans écouteur permanent.
      */
-    suspend fun fetchHistoricalOrders(limit: Int = 50): Result<List<OrderEntity>> = withContext(Dispatchers.IO) {
+    suspend fun fetchHistoricalOrders(limit: Int = 100): Result<List<OrderEntity>> = withContext(Dispatchers.IO) {
         if (_isQuotaExceeded.value) {
             return@withContext Result.failure(Exception("Mode dégradé actif : consultation des commandes historiques locales."))
         }
@@ -223,26 +223,31 @@ class AdminOrderRepository(
             val snapshot = withTimeout(10000L) {
                 db.collection("orders")
                     .whereIn("status", historicalStatuses)
-                    .limit(limit.toLong())
+                    .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                    .limit(100L)
                     .get()
                     .await()
             }
 
             val entities = snapshot.documents.map { OrderMapper.fromDocument(it) }
-            if (entities.isNotEmpty()) {
-                orderDao.insertOrders(entities)
-            }
+            
+            // Transaction Room : Purge atomique de l'ancien historique + insertion des nouvelles entités (anti-données fantômes)
+            orderDao.syncHistoricalOrders(entities)
 
             _isQuotaExceeded.value = false
             Result.success(entities)
         } catch (e: Throwable) {
-            if (e is FirebaseFirestoreException && (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED || e.code == FirebaseFirestoreException.Code.UNAVAILABLE)) {
-                if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
-                    FirestoreSyncManager.triggerQuotaExhausted()
+            if (e is FirebaseFirestoreException) {
+                if (e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION) {
+                    Log.e(TAG, "Index composite Firestore requis pour l'historique ! Créez l'index via ce lien : ${e.message}", e)
+                } else if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED || e.code == FirebaseFirestoreException.Code.UNAVAILABLE) {
+                    if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                        FirestoreSyncManager.triggerQuotaExhausted()
+                    }
+                    _isQuotaExceeded.value = true
+                    stopRealtimeSync()
+                    appContext?.let { QuotaRetryWorker.enqueueWork(it) }
                 }
-                _isQuotaExceeded.value = true
-                stopRealtimeSync()
-                appContext?.let { QuotaRetryWorker.enqueueWork(it) }
             }
             Log.e(TAG, "Erreur lors de la récupération de l'historique: ${e.message}", e)
             Result.failure(e)

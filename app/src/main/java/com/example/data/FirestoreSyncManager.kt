@@ -85,6 +85,22 @@ class FirestoreSyncManager(
         }
         val db = firestore ?: return
 
+        // --- OPTIMISATION DU QUOTA FIRESTORE (ÉTAPE 2/6) ---
+        // Éradication totale des addSnapshotListener permanents sur les collections massives (clients, catalogue, historique, paramètres, etc.).
+        // L'Admin ne dispose de temps réel QUE pour les commandes nécessitant une action (AdminOrderRepository.syncActiveOrdersRealtime).
+        // Tout le reste passe en chargement ponctuel et sur Pull-to-Refresh via get().await().
+        scope.launch(Dispatchers.IO) {
+            try {
+                repository.fetchSettings()
+                repository.fetchClients()
+                repository.fetchCatalog()
+            } catch (e: Throwable) {
+                Log.e("FirestoreSyncManager", "Erreur lors du chargement initial one-shot get().await(): ${e.message}", e)
+            }
+        }
+
+        val enableLegacyRealtimeListeners = false
+        if (enableLegacyRealtimeListeners) {
         // --- 1. REAL-TIME LISTENERS FROM FIRESTORE ---
 
         // USERS & UTILISATEURS DUAL LISTENER
@@ -868,7 +884,7 @@ class FirestoreSyncManager(
                 }
             }
         }
-
+        } // Fin de la désactivation des écouteurs permanents (protection Spark Quota)
 
         // --- 2. LOCAL ROOM CHANGE COLLECTORS (PUSH TO FIRESTORE) ---
 

@@ -46,6 +46,84 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
         _isFirestoreQuotaExhausted.value = false
     }
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    fun refreshClients() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                repository.fetchClients()
+            } catch (e: Exception) {
+                Log.e("AppViewModel", "Erreur lors du rafraîchissement des clients: ${e.message}", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun refreshOrderHistory() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                com.example.di.Graph.adminOrderRepository.fetchHistoricalOrders(100)
+            } catch (e: Exception) {
+                Log.e("AppViewModel", "Erreur lors du rafraîchissement de l'historique: ${e.message}", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun refreshCatalog() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                repository.fetchCatalog()
+            } catch (e: Exception) {
+                Log.e("AppViewModel", "Erreur lors du rafraîchissement du catalogue: ${e.message}", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun refreshSettings() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                repository.fetchSettings()
+            } catch (e: Exception) {
+                Log.e("AppViewModel", "Erreur lors du rafraîchissement des paramètres: ${e.message}", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun refreshAll() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                repository.fetchClients()
+                repository.fetchCatalog()
+                repository.fetchSettings()
+                com.example.di.Graph.adminOrderRepository.fetchHistoricalOrders(100)
+            } catch (e: Exception) {
+                Log.e("AppViewModel", "Erreur lors du rafraîchissement global: ${e.message}", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try {
+            com.example.di.Graph.adminOrderRepository.stopRealtimeSync()
+        } catch (_: Throwable) {}
+    }
+
     private val _currentUser = MutableStateFlow<UserEntity?>(null)
     val currentUser = _currentUser.asStateFlow()
     val allAnnouncements = repository.allAnnouncements.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())

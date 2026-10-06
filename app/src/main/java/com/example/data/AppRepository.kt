@@ -1,14 +1,299 @@
 package com.example.data
 
 import android.content.Context
+import android.util.Log
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 class AppRepository(
     private val dao: AppDao,
     private val pendingDao: PendingActionDao? = null
 ) {
     private val gson = Gson()
+
+    suspend fun fetchClients(): Result<List<UserEntity>> = withContext(Dispatchers.IO) {
+        try {
+            val db = FirebaseFirestore.getInstance()
+            val snapshot = withTimeout(10000L) {
+                var snap = db.collection("users")
+                    .whereEqualTo("role", "CLIENT")
+                    .get()
+                    .await()
+                if (snap.isEmpty) {
+                    snap = db.collection("utilisateurs")
+                        .whereEqualTo("role", "CLIENT")
+                        .get()
+                        .await()
+                }
+                snap
+            }
+            val clients = snapshot.documents.map { doc ->
+                val nom = doc.getString("nom") ?: doc.getString("nomUser") ?: ""
+                val prenom = doc.getString("prenom") ?: doc.getString("prenomUser") ?: ""
+                val email = doc.getString("email") ?: doc.getString("mailUser") ?: ""
+                val telephone = doc.getString("telephone") ?: doc.getString("numeroUser") ?: ""
+                val role = doc.getString("role") ?: "CLIENT"
+                val coordonnees = doc.getString("coordonnees") ?: doc.getString("adresseUser") ?: ""
+                val accumulatedFreeKgs = (doc.get("accumulatedFreeKgs") as? Number)?.toDouble() ?: (doc.get("kilosGratuitsDisponibles") as? Number)?.toDouble() ?: 0.0
+                val lifetimeKgWashed = (doc.get("lifetimeKgWashed") as? Number)?.toDouble() ?: 0.0
+                val currentKgTowardsReward = (doc.get("currentKgTowardsReward") as? Number)?.toDouble() ?: 0.0
+                val isLoyaltyEnabled = doc.getBoolean("isLoyaltyEnabled") ?: true
+
+                UserEntity(
+                    id = doc.id,
+                    role = role,
+                    nom = nom,
+                    prenom = prenom,
+                    email = email,
+                    telephone = telephone,
+                    motDePasse = doc.getString("motDePasse") ?: "",
+                    coordonnees = coordonnees,
+                    accumulatedFreeKgs = accumulatedFreeKgs,
+                    lifetimeKgWashed = lifetimeKgWashed,
+                    currentKgTowardsReward = currentKgTowardsReward,
+                    isLoyaltyEnabled = isLoyaltyEnabled,
+                    fidelityPointsKg = (doc.get("fidelityPointsKg") as? Number)?.toFloat() ?: 0f,
+                    isArchived = doc.getBoolean("isArchived") ?: false
+                )
+            }
+            dao.syncClients(clients)
+            Result.success(clients)
+        } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException) {
+                if (e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION) {
+                    Log.e("AppRepository", "Index composite Firestore requis pour les clients ! Créez l'index via ce lien : ${e.message}", e)
+                } else if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED || e.code == FirebaseFirestoreException.Code.UNAVAILABLE) {
+                    FirestoreSyncManager.triggerQuotaExhausted()
+                }
+            }
+            Log.e("AppRepository", "Erreur fetchClients: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchCatalog(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val db = FirebaseFirestore.getInstance()
+            
+            // 1. Articles speciaux et Gommage (catalog / catalogue)
+            val catalogSnap = withTimeout(10000L) {
+                var snap = db.collection("catalog").get().await()
+                if (snap.isEmpty) {
+                    snap = db.collection("catalogue").get().await()
+                }
+                snap
+            }
+            val specialItems = mutableListOf<SpecialItemEntity>()
+            val gommageItems = mutableListOf<GommageItemEntity>()
+            for (doc in catalogSnap.documents) {
+                val type = doc.getString("type") ?: ""
+                val isArchived = doc.getBoolean("isArchived") ?: false
+                val name = doc.getString("name") ?: ""
+                val price = (doc.get("price") as? Number)?.toFloat() ?: 0f
+
+                if (type.equals("GOMMAGE", ignoreCase = true) || doc.id.startsWith("gom_", ignoreCase = true)) {
+                    gommageItems.add(GommageItemEntity(id = doc.id, name = name, price = price, isArchived = isArchived))
+                } else {
+                    specialItems.add(SpecialItemEntity(id = doc.id, name = name, price = price, isArchived = isArchived))
+                }
+            }
+            dao.syncSpecialItems(specialItems)
+            dao.syncGommageItems(gommageItems)
+
+            // 2. Promotions (promotions / promos)
+            val promoSnap = withTimeout(10000L) {
+                var snap = db.collection("promotions").get().await()
+                if (snap.isEmpty) {
+                    snap = db.collection("promos").get().await()
+                }
+                snap
+            }
+            val promos = promoSnap.documents.map { doc ->
+                PromoEntity(
+                    id = doc.id,
+                    code = doc.getString("code") ?: "",
+                    description = doc.getString("description") ?: "",
+                    discountPercent = (doc.get("discountPercent") as? Number)?.toFloat() ?: 0f,
+                    freeKg = (doc.get("freeKg") as? Number)?.toFloat() ?: 0f,
+                    minOrderValue = (doc.get("minOrderValue") as? Number)?.toFloat() ?: 0f,
+                    isActive = doc.getBoolean("isActive") ?: true,
+                    validUntil = doc.getLong("validUntil"),
+                    isPermanent = doc.getBoolean("isPermanent") ?: true,
+                    targetItems = doc.getString("targetItems") ?: "ALL",
+                    discountType = doc.getString("discountType") ?: "PERCENTAGE",
+                    isArchived = doc.getBoolean("isArchived") ?: false
+                )
+            }
+            dao.syncPromos(promos)
+
+            // 3. Consommables / Stocks (stocks / stock)
+            val stockSnap = withTimeout(10000L) {
+                var snap = db.collection("stocks").get().await()
+                if (snap.isEmpty) {
+                    snap = db.collection("stock").get().await()
+                }
+                snap
+            }
+            val consumables = stockSnap.documents.map { doc ->
+                val docName = doc.getString("name")?.takeIf { it.isNotEmpty() } ?: doc.getString("nomProduit") ?: ""
+                val docQuantity = (doc.get("quantity") as? Number)?.toInt()
+                    ?: (doc.get("quantiterProduit") as? Number)?.toInt() ?: 0
+                val docThreshold = (doc.get("threshold") as? Number)?.toInt()
+                    ?: (doc.get("produitSeilleAlert") as? Number)?.toInt() ?: 0
+                val docIsPublic = doc.getBoolean("isPublic") ?: doc.getBoolean("newStocksPublic") ?: false
+                val docIsPrivee = doc.getBoolean("newStocksPrivee") ?: !docIsPublic
+
+                ConsumableEntity(
+                    id = doc.id,
+                    name = docName,
+                    quantity = docQuantity,
+                    threshold = docThreshold,
+                    isPublic = docIsPublic,
+                    isArchived = doc.getBoolean("isArchived") ?: false,
+                    nomProduit = doc.getString("nomProduit") ?: docName,
+                    quantiterProduit = (doc.get("quantiterProduit") as? Number)?.toDouble() ?: docQuantity.toDouble(),
+                    produitSeilleAlert = (doc.get("produitSeilleAlert") as? Number)?.toDouble() ?: docThreshold.toDouble(),
+                    newStocksPublic = docIsPublic,
+                    newStocksPrivee = docIsPrivee
+                )
+            }
+            dao.syncConsumables(consumables)
+
+            Result.success(Unit)
+        } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException) {
+                if (e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION) {
+                    Log.e("AppRepository", "Index composite Firestore requis pour le catalogue ! Créez l'index via ce lien : ${e.message}", e)
+                } else if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED || e.code == FirebaseFirestoreException.Code.UNAVAILABLE) {
+                    FirestoreSyncManager.triggerQuotaExhausted()
+                }
+            }
+            Log.e("AppRepository", "Erreur fetchCatalog: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchSettings(): Result<ConfigEntity> = withContext(Dispatchers.IO) {
+        try {
+            val db = FirebaseFirestore.getInstance()
+            val doc = withTimeout(10000L) {
+                var d = db.collection("config").document("main").get().await()
+                if (!d.exists()) {
+                    d = db.collection("general_settings").document("main").get().await()
+                }
+                d
+            }
+            if (!doc.exists()) {
+                return@withContext Result.failure(Exception("Document de configuration introuvable"))
+            }
+
+            val baseTransportFee = (doc.get("baseTransportFee") as? Number)?.toFloat()
+                ?: (doc.get("tarifBaseTransort") as? Number)?.toFloat() ?: 1000f
+            val expressMultiplier = (doc.get("expressMultiplier") as? Number)?.toFloat() ?: 1.3f
+            val fidelityThresholdKg = (doc.get("fidelityThresholdKg") as? Number)?.toFloat() ?: 10f
+            val fidelityRewardValue = (doc.get("fidelityRewardValue") as? Number)?.toFloat() ?: 350f
+            val pricePerKm = (doc.get("pricePerKm") as? Number)?.toFloat()
+                ?: (doc.get("prixParKilo") as? Number)?.toFloat() ?: 500f
+            val pressingLat = (doc.get("pressingLat") as? Number)?.toDouble() ?: 12.6392
+            val pressingLng = (doc.get("pressingLng") as? Number)?.toDouble() ?: -8.0029
+            val referralRewardKg = (doc.get("referralRewardKg") as? Number)?.toFloat() ?: 2f
+            val appDownloadLink = doc.getString("appDownloadLink") ?: ""
+            val autoBanEnabled = doc.getBoolean("autoBanEnabled") ?: false
+            val autoBanThreshold = (doc.get("autoBanThreshold") as? Number)?.toInt() ?: 3
+            val autoBanDurationHours = (doc.get("autoBanDurationHours") as? Number)?.toInt() ?: 24
+            val isLoyaltyEnabled = doc.getBoolean("isLoyaltyEnabled") ?: true
+            val loyaltyValidUntil = doc.getLong("loyaltyValidUntil")
+            val isMaintenance = doc.getBoolean("isMaintenance") ?: false
+            val acceptNewOrders = doc.getBoolean("acceptNewOrders") ?: true
+            val isLoyaltyProgramEnabled = doc.getBoolean("isLoyaltyProgramEnabled") ?: isLoyaltyEnabled
+            val loyaltyKgThreshold = (doc.get("loyaltyKgThreshold") as? Number)?.toDouble() ?: 10.0
+            val loyaltyKgReward = (doc.get("loyaltyKgReward") as? Number)?.toDouble() ?: 1.0
+            val loyaltyMaxFreeKgs = (doc.get("loyaltyMaxFreeKgs") as? Number)?.toDouble() ?: 30.0
+            val loyaltyExpirationDays = (doc.get("loyaltyExpirationDays") as? Number)?.toInt() ?: 90
+            val categories = doc.getString("categories") ?: "Linge Mélangé,Costumes,Robes de Soirée,Chemises,Linge de Maison,Vestes,Pantalons"
+            val businessName = doc.getString("businessName")
+                ?: doc.getString("nomEntreprise") ?: "BELLA — PRESSING"
+            val contactPhone = doc.getString("contactPhone")
+                ?: doc.getString("numeroEntreprise") ?: ""
+            val contactEmail = doc.getString("contactEmail")
+                ?: doc.getString("emailEntreprise") ?: ""
+            val currencySymbol = doc.getString("currencySymbol") ?: "FCFA"
+            val taxPercentage = (doc.get("taxPercentage") as? Number)?.toFloat() ?: 0f
+            val openingHours = doc.getString("openingHours")
+                ?: doc.getString("openHours") ?: ""
+            val closingHours = doc.getString("closingHours")
+                ?: doc.getString("closeHours") ?: ""
+            val openingDays = doc.getString("openingDays")
+                ?: doc.getString("openDays") ?: "Lundi,Mardi,Mercredi,Jeudi,Vendredi,Samedi"
+            val closingDays = doc.getString("closingDays") ?: "Dimanche"
+            val termsAndConditionsLink = doc.getString("termsAndConditionsLink")
+                ?: doc.getString("linkCGU") ?: ""
+
+            val configEntity = ConfigEntity(
+                id = "global_config",
+                baseTransportFee = baseTransportFee,
+                expressMultiplier = expressMultiplier,
+                fidelityThresholdKg = fidelityThresholdKg,
+                fidelityRewardValue = fidelityRewardValue,
+                pricePerKm = pricePerKm,
+                pressingLat = pressingLat,
+                pressingLng = pressingLng,
+                referralRewardKg = referralRewardKg,
+                appDownloadLink = appDownloadLink,
+                autoBanEnabled = autoBanEnabled,
+                autoBanThreshold = autoBanThreshold,
+                autoBanDurationHours = autoBanDurationHours,
+                isLoyaltyEnabled = isLoyaltyEnabled,
+                loyaltyValidUntil = loyaltyValidUntil,
+                isMaintenance = isMaintenance,
+                acceptNewOrders = acceptNewOrders,
+                categories = categories,
+                businessName = businessName,
+                contactPhone = contactPhone,
+                contactEmail = contactEmail,
+                currencySymbol = currencySymbol,
+                taxPercentage = taxPercentage,
+                openingHours = openingHours,
+                closingHours = closingHours,
+                openingDays = openingDays,
+                closingDays = closingDays,
+                termsAndConditionsLink = termsAndConditionsLink,
+                tarifBaseTransort = baseTransportFee.toDouble(),
+                prixParKilo = pricePerKm.toDouble(),
+                nomEntreprise = businessName,
+                numeroEntreprise = contactPhone,
+                emailEntreprise = contactEmail,
+                openDays = openingDays,
+                openHours = openingHours,
+                closeHours = closingHours,
+                linkCGU = termsAndConditionsLink,
+                isLoyaltyProgramEnabled = isLoyaltyProgramEnabled,
+                loyaltyKgThreshold = loyaltyKgThreshold,
+                loyaltyKgReward = loyaltyKgReward,
+                loyaltyMaxFreeKgs = loyaltyMaxFreeKgs,
+                loyaltyExpirationDays = loyaltyExpirationDays
+            )
+
+            dao.insertConfig(configEntity)
+            Result.success(configEntity)
+        } catch (e: Throwable) {
+            if (e is FirebaseFirestoreException) {
+                if (e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION) {
+                    Log.e("AppRepository", "Index composite Firestore requis pour les paramètres ! Créez l'index via ce lien : ${e.message}", e)
+                } else if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED || e.code == FirebaseFirestoreException.Code.UNAVAILABLE) {
+                    FirestoreSyncManager.triggerQuotaExhausted()
+                }
+            }
+            Log.e("AppRepository", "Erreur fetchSettings: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
     fun getPendingActionsFlow(): Flow<List<PendingActionEntity>> = pendingDao?.getPendingActionsFlow() ?: kotlinx.coroutines.flow.flowOf(emptyList())
     fun getPendingActionsCountFlow(): Flow<Int> = pendingDao?.getPendingActionCountFlow() ?: kotlinx.coroutines.flow.flowOf(0)
     suspend fun insertPendingAction(action: PendingActionEntity) { pendingDao?.insertPendingAction(action) }

@@ -106,4 +106,19 @@ interface OrderDao {
      */
     @Query("UPDATE orders SET isArchived = 0 WHERE id = :orderId")
     suspend fun restoreOrder(orderId: String)
+
+    /**
+     * Supprime toutes les commandes clôturées/historiques pour préparer une resynchronisation propre sans données fantômes.
+     */
+    @Query("DELETE FROM orders WHERE status IN ('LIVRE', 'TERMINE', 'ANNULE', 'REJETE') OR isArchived = 1")
+    suspend fun deleteAllOrdersHistory()
+
+    /**
+     * Synchronisation atomique de l'historique : purge locale + insertion en une transaction unique.
+     */
+    @androidx.room.Transaction
+    suspend fun syncHistoricalOrders(orders: List<OrderEntity>) {
+        deleteAllOrdersHistory()
+        insertOrders(orders)
+    }
 }

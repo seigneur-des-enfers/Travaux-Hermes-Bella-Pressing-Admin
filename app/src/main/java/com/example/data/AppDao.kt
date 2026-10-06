@@ -43,6 +43,17 @@ interface AppDao {
     @Query("UPDATE users SET isArchived = 0 WHERE id = :id")
     suspend fun restoreUser(id: String)
 
+    @Query("DELETE FROM users WHERE role = 'CLIENT'")
+    suspend fun deleteAllClients()
+
+    @androidx.room.Transaction
+    suspend fun syncClients(clients: List<UserEntity>) {
+        deleteAllClients()
+        for (client in clients) {
+            insertUser(client)
+        }
+    }
+
     @Query("SELECT * FROM orders WHERE (status IN ('EN_ATTENTE', 'EN_COURS', 'PRET', 'ACCEPTE', 'EN_LIVRAISON') OR (orderLivree = 0 AND status NOT IN ('LIVRE', 'TERMINE', 'ANNULE', 'REJETE'))) AND isArchived = 0 ORDER BY createdAt DESC")
     fun getActiveOrders(): Flow<List<OrderEntity>>
 
@@ -112,6 +123,16 @@ interface AppDao {
     suspend fun archiveConsumable(id: String)
     @Query("UPDATE consumables SET isArchived = 0 WHERE id = :id")
     suspend fun restoreConsumable(id: String)
+    @Query("DELETE FROM consumables")
+    suspend fun deleteAllConsumables()
+
+    @androidx.room.Transaction
+    suspend fun syncConsumables(consumables: List<ConsumableEntity>) {
+        deleteAllConsumables()
+        for (c in consumables) {
+            insertConsumable(c)
+        }
+    }
 
     @Query("SELECT * FROM config LIMIT 1")
     fun getConfig(): Flow<ConfigEntity?>
@@ -138,6 +159,16 @@ interface AppDao {
     suspend fun deleteSpecialItem(id: String)
     @Query("UPDATE special_items SET isArchived = 1 WHERE id = :id")
     suspend fun archiveSpecialItem(id: String)
+    @Query("DELETE FROM special_items")
+    suspend fun deleteAllSpecialItems()
+
+    @androidx.room.Transaction
+    suspend fun syncSpecialItems(items: List<SpecialItemEntity>) {
+        deleteAllSpecialItems()
+        for (item in items) {
+            insertSpecialItem(item)
+        }
+    }
 
     @Query("SELECT * FROM gommage_items WHERE isArchived = 0 ORDER BY name ASC")
     fun getAllGommageItems(): Flow<List<GommageItemEntity>>
@@ -162,6 +193,16 @@ interface AppDao {
     suspend fun restoreGommageItem(id: String)
     @Query("UPDATE special_items SET isArchived = 0 WHERE id = :id")
     suspend fun restoreSpecialItem(id: String)
+    @Query("DELETE FROM gommage_items")
+    suspend fun deleteAllGommageItems()
+
+    @androidx.room.Transaction
+    suspend fun syncGommageItems(items: List<GommageItemEntity>) {
+        deleteAllGommageItems()
+        for (item in items) {
+            insertGommageItem(item)
+        }
+    }
 
     @Query("SELECT * FROM promos WHERE isArchived = 0 ORDER BY code ASC")
     fun getAllPromos(): Flow<List<PromoEntity>>
@@ -184,6 +225,16 @@ interface AppDao {
     suspend fun archivePromo(id: String)
     @Query("UPDATE promos SET isArchived = 0 WHERE id = :id")
     suspend fun restorePromo(id: String)
+    @Query("DELETE FROM promos")
+    suspend fun deleteAllPromos()
+
+    @androidx.room.Transaction
+    suspend fun syncPromos(promos: List<PromoEntity>) {
+        deleteAllPromos()
+        for (promo in promos) {
+            insertPromo(promo)
+        }
+    }
     
     @Query("SELECT * FROM rules WHERE isArchived = 0 ORDER BY name ASC")
     fun getAllRules(): Flow<List<RuleEntity>>

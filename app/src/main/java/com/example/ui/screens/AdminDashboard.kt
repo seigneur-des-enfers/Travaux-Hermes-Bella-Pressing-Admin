@@ -42,6 +42,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 
 import com.example.data.UserEntity
 import com.example.data.PromoEntity
@@ -410,6 +411,7 @@ fun exportOrdersToCSV(context: android.content.Context, orders: List<OrderEntity
 @Composable
 fun AdminClientsTab(padding: PaddingValues, clients: List<UserEntity>, allOrders: List<OrderEntity>, viewModel: AppViewModel) {
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val canManageClients = hasPermission(currentUser, "GERER_CLIENTS")
     var searchQuery by remember { mutableStateOf("") }
     
@@ -427,7 +429,12 @@ fun AdminClientsTab(padding: PaddingValues, clients: List<UserEntity>, allOrders
     var selectedClient by remember { mutableStateOf<UserEntity?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshClients() },
+        modifier = Modifier.fillMaxSize().padding(padding)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = searchQuery,
@@ -539,10 +546,11 @@ fun AdminClientsTab(padding: PaddingValues, clients: List<UserEntity>, allOrders
             }
         }
     }
-    
+
     if (showBottomSheet && selectedClient != null) {
         ClientBottomSheet(client = selectedClient!!, viewModel = viewModel, onDismiss = { showBottomSheet = false })
     }
+}
 }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1645,10 +1653,12 @@ fun ClientLogsDialog(client: UserEntity, viewModel: AppViewModel, onDismiss: () 
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminOrdersTab(padding: PaddingValues, allOrders: List<OrderEntity>, viewModel: AppViewModel) {
     val context = LocalContext.current
     val allClients by viewModel.allClients.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
     
     val filteredOrders = allOrders.filter { order -> !order.isArchived &&
@@ -1670,13 +1680,17 @@ fun AdminOrdersTab(padding: PaddingValues, allOrders: List<OrderEntity>, viewMod
         if (newCount > 0) (10000000000000L + newCount * 1000000000L + lastTimestamp) else lastTimestamp
     }
     
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshOrderHistory() },
+        modifier = Modifier.fillMaxSize().padding(padding)
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
         item {
             OutlinedTextField(
                 value = searchQuery,
@@ -1751,6 +1765,7 @@ fun AdminOrdersTab(padding: PaddingValues, allOrders: List<OrderEntity>, viewMod
             }
         }
     }
+}
 }
 
 @Composable
@@ -3085,7 +3100,9 @@ fun AdminStocksTab(padding: PaddingValues, viewModel: AppViewModel) {
             }
         )
     }
-}@OptIn(ExperimentalMaterial3Api::class)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminCatalogueTab(padding: PaddingValues, viewModel: AppViewModel) {
     val specialItems by viewModel.allSpecialItems.collectAsStateWithLifecycle()
@@ -3118,13 +3135,19 @@ fun AdminCatalogueTab(padding: PaddingValues, viewModel: AppViewModel) {
     val canManageGommage = currentUser?.role == "ADMIN" || currentUser?.role == "SUPER_ADMIN" || currentUser?.roleAdminSuper == true || hasPermission(currentUser, "GERER_GOMMAGE") || hasPermission(currentUser, "VOIR_CATALOGUE")
     val canManagePromos = currentUser?.role == "ADMIN" || currentUser?.role == "SUPER_ADMIN" || currentUser?.roleAdminSuper == true || hasPermission(currentUser, "GERER_PROMOS") || hasPermission(currentUser, "GERER_PROMOS_AVANCEES")
     
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshCatalog() },
+        modifier = Modifier.fillMaxSize().padding(padding)
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text("Catalogue: Articles Spéciaux", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -3286,6 +3309,7 @@ fun AdminCatalogueTab(padding: PaddingValues, viewModel: AppViewModel) {
                 }
             }
         }
+    }
     }
     
     if (showSpecialDialog) {
@@ -3543,7 +3567,9 @@ fun AdminCatalogueTab(padding: PaddingValues, viewModel: AppViewModel) {
             }
         )
     }
-}@OptIn(ExperimentalMaterial3Api::class)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminSettingsTab(padding: PaddingValues, viewModel: AppViewModel) {
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -3557,6 +3583,13 @@ fun AdminSettingsTab(padding: PaddingValues, viewModel: AppViewModel) {
     var afThresholdInput by remember { mutableStateOf("3") }
     var afDurationInput by remember { mutableStateOf("24") }
     var afActionInput by remember { mutableStateOf("BAN") }
+
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        if (config == null) {
+            viewModel.refreshSettings()
+        }
+    }
 
     if (config == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -3592,13 +3625,17 @@ fun AdminSettingsTab(padding: PaddingValues, viewModel: AppViewModel) {
     val daysOfWeek = listOf("Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche")
     val timeOptions = (0..23).flatMap { listOf(String.format("%02d:00", it), String.format("%02d:30", it)) }
     
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshSettings() },
+        modifier = Modifier.fillMaxSize().padding(padding)
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
         item {
             Text("Paramètres Généraux", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
@@ -4023,6 +4060,7 @@ fun AdminSettingsTab(padding: PaddingValues, viewModel: AppViewModel) {
             }
         }
     }
+    }
     
     if (showCreateAntiFraudDialog) {
         AlertDialog(
@@ -4093,7 +4131,9 @@ fun AdminSettingsTab(padding: PaddingValues, viewModel: AppViewModel) {
             }
         )
     }
-}@Composable
+}
+
+@Composable
 fun AdminStaffTab(padding: PaddingValues, viewModel: AppViewModel) {
     val allAdmins by viewModel.allAdmins.collectAsStateWithLifecycle()
     val archivedAdmins by viewModel.archivedAdmins.collectAsStateWithLifecycle()
