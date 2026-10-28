@@ -493,6 +493,94 @@ class AppRepository(
     suspend fun insertAnnouncement(announcement: AnnouncementEntity) = dao.insertAnnouncement(announcement)
     suspend fun deleteAnnouncement(id: String) = dao.deleteAnnouncement(id)
 
+    suspend fun fetchAnnouncements(): Result<List<AnnouncementEntity>> = withContext(Dispatchers.IO) {
+        try {
+            val db = FirebaseFirestore.getInstance()
+            val collections = listOf("announcements", "annonces")
+            val fetchedList = mutableListOf<AnnouncementEntity>()
+
+            for (col in collections) {
+                try {
+                    val snapshot = withTimeout(10000L) {
+                        db.collection(col).get().await()
+                    }
+                    for (doc in snapshot.documents) {
+                        val title = doc.getString("title")?.takeIf { it.isNotBlank() }
+                            ?: doc.getString("nomAnnoce")
+                            ?: doc.getString("titre") ?: ""
+                        val message = doc.getString("message")?.takeIf { it.isNotBlank() }
+                            ?: doc.getString("descriptionAnnoce")
+                            ?: doc.getString("texte") ?: ""
+                        val imageUrl = doc.getString("imageUrl")?.takeIf { it.isNotBlank() }
+                            ?: doc.getString("fichiersMediaAnnoce")
+                            ?: doc.getString("image") ?: ""
+                        val isVisible = doc.getBoolean("isVisible") ?: doc.getBoolean("visible") ?: true
+                        val createdAt = doc.getLong("createdAt") ?: doc.getLong("dateCreation") ?: System.currentTimeMillis()
+
+                        fetchedList.add(
+                            AnnouncementEntity(
+                                id = doc.id,
+                                title = title,
+                                message = message,
+                                imageUrl = imageUrl,
+                                isVisible = isVisible,
+                                createdAt = createdAt,
+                                nomAnnoce = title,
+                                descriptionAnnoce = message,
+                                fichiersMediaAnnoce = imageUrl
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.w("AppRepository", "fetchAnnouncements warning sur $col: ${e.message}")
+                }
+            }
+
+            val distinctList = fetchedList.distinctBy { it.id }
+            if (distinctList.isNotEmpty()) {
+                dao.syncAnnouncements(distinctList)
+            }
+            Result.success(distinctList)
+        } catch (e: Throwable) {
+            Log.e("AppRepository", "Erreur fetchAnnouncements: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchPromos(): Result<List<PromoEntity>> = withContext(Dispatchers.IO) {
+        try {
+            val db = FirebaseFirestore.getInstance()
+            val promoSnap = withTimeout(10000L) {
+                var snap = db.collection("promotions").get().await()
+                if (snap.isEmpty) {
+                    snap = db.collection("promos").get().await()
+                }
+                snap
+            }
+            val promos = promoSnap.documents.map { doc ->
+                PromoEntity(
+                    id = doc.id,
+                    code = doc.getString("code") ?: "",
+                    description = doc.getString("description") ?: "",
+                    discountPercent = (doc.get("discountPercent") as? Number)?.toFloat() ?: 0f,
+                    freeKg = (doc.get("freeKg") as? Number)?.toFloat() ?: 0f,
+                    minOrderValue = (doc.get("minOrderValue") as? Number)?.toFloat() ?: 0f,
+                    isActive = doc.getBoolean("isActive") ?: true,
+                    validUntil = doc.getLong("validUntil"),
+                    isPermanent = doc.getBoolean("isPermanent") ?: true,
+                    targetItems = doc.getString("targetItems") ?: "ALL",
+                    discountType = doc.getString("discountType") ?: "PERCENTAGE",
+                    isArchived = doc.getBoolean("isArchived") ?: false
+                )
+            }
+            dao.syncPromos(promos)
+            Result.success(promos)
+        } catch (e: Throwable) {
+            Log.e("AppRepository", "Erreur fetchPromos: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     // --- NEW REPOSITORY OPERATIONS ---
     fun getAllCategoriesLingeSaved(): Flow<List<CategoriesLingeSavedEntity>> = dao.getAllCategoriesLingeSaved()
     suspend fun insertCategoryLingeSaved(category: CategoriesLingeSavedEntity) = dao.insertCategoryLingeSaved(category)

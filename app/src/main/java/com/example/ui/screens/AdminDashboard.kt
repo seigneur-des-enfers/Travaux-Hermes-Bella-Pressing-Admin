@@ -25,6 +25,9 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.foundation.Image
 import androidx.compose.material3.*
 
 import com.example.data.AntiFraudRuleEntity
@@ -372,7 +375,7 @@ fun exportInvoiceToPDF(context: android.content.Context, order: OrderEntity) {
         Catégorie : ${order.categorie}
         Pièces : ${order.pieces}
         Lavage : ${order.lavageType}
-        Gommage : ${order.choixArticleGommage.ifEmpty { "Aucun" }}
+        Gommage : ${if (order.gommagePaire > 0 || order.gommageImpair > 0) "${order.gommagePaire} paire(s), ${order.gommageImpair} impair(s)" else "Aucun"}
         Poids : ${order.kg} Kg
         
         Total à payer : ${order.prixFinal} FCFA
@@ -395,7 +398,8 @@ fun exportOrdersToCSV(context: android.content.Context, orders: List<OrderEntity
     val csvHeader = "ID,User ID,Status,Categorie,Pieces,Lavage,Choix Gommage,Kg,Prix,Date\n"
     val csvRows = orders.joinToString("\n") { order ->
         val dateString = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.FRANCE).format(java.util.Date(order.createdAt))
-        "${order.id},${order.userId},${order.status},${order.categorie},${order.pieces},${order.lavageType},${order.choixArticleGommage},${order.kg},${order.prixFinal},${dateString}"
+        val gommageText = if (order.gommagePaire > 0 || order.gommageImpair > 0) "${order.gommagePaire}p/${order.gommageImpair}i" else "0"
+        "${order.id},${order.userId},${order.status},${order.categorie},${order.pieces},${order.lavageType},${gommageText},${order.kg},${order.prixFinal},${dateString}"
     }
     val csvContent = csvHeader + csvRows
     
@@ -857,6 +861,10 @@ fun ClientBottomSheet(client: UserEntity, viewModel: AppViewModel, onDismiss: ()
     var showEditProfile by remember { mutableStateOf(false) }
     var showLogs by remember { mutableStateOf(false) }
     var showPromoDialog by remember { mutableStateOf(false) }
+    var showCustomFidelityDialog by remember { mutableStateOf(false) }
+    var customFreeKgsInput by remember { mutableStateOf("") }
+    var customTowardsInput by remember { mutableStateOf("") }
+    var customReasonInput by remember { mutableStateOf("") }
     
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -865,36 +873,40 @@ fun ClientBottomSheet(client: UserEntity, viewModel: AppViewModel, onDismiss: ()
     val canViewLogs = hasPermission(currentUser, "VOIR_LOGS")
     val canRestore = hasPermission(currentUser, "RESTAURER_COMPTE")
     val canHardDelete = hasPermission(currentUser, "SUPPRIMER_DEFINITIVEMENT")
+    val canManageFidelity = (currentUser?.role in listOf("SUPER_ADMIN", "ADMIN") || currentUser?.permissions?.contains("ALL") == true || currentUser?.permissions?.contains("GERER_FIDELITE") == true) && client.role == "CLIENT"
 
-    val isBanned = client.isBanned || client.estBanni
-    val isSuspended = client.isSuspended || client.estSuspendu
+    val liveClient by viewModel.getUserByIdFlow(client.id).collectAsStateWithLifecycle(initialValue = client)
+    val currentClient = liveClient ?: client
+
+    val isBanned = currentClient.isBanned || currentClient.estBanni
+    val isSuspended = currentClient.isSuspended || currentClient.estSuspendu
     val isSanctioned = isBanned || isSuspended
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Actions pour ${client.prenom} ${client.nom}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Actions pour ${currentClient.prenom} ${currentClient.nom}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             HorizontalDivider()
 
-            // RÉCAPITULATIF PROGRAMME FIDÉLITÉ (JAUGE VISUELLE & SOLDE KILOS GRATUITS)
+            // RÉCAPITULATIF PROGRAMME FIDÉLITÉ (JAUGE VISUELLE & SOLDE KILOS GRATUITS AVEC OUTILS DIRECTS)
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
             ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("🎁 Solde Kilos Gratuits", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text("🎁 Solde Kilos Gratuits", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color(0xFF2E7D32).copy(alpha = 0.15f)
                         ) {
                             Text(
-                                "${client.accumulatedFreeKgs} Kg offerts",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                "${String.format(java.util.Locale.US, "%.1f", currentClient.accumulatedFreeKgs)} Kg offerts",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF2E7D32)
@@ -903,9 +915,9 @@ fun ClientBottomSheet(client: UserEntity, viewModel: AppViewModel, onDismiss: ()
                     }
                     
                     val threshold = (config?.loyaltyKgThreshold ?: 10.0).coerceAtLeast(1.0)
-                    val progressFraction = (client.currentKgTowardsReward / threshold).toFloat().coerceIn(0f, 1f)
+                    val progressFraction = (currentClient.currentKgTowardsReward / threshold).toFloat().coerceIn(0f, 1f)
                     
-                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -916,7 +928,7 @@ fun ClientBottomSheet(client: UserEntity, viewModel: AppViewModel, onDismiss: ()
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                "${String.format(java.util.Locale.US, "%.1f", client.currentKgTowardsReward)} / ${threshold} Kg (${(progressFraction * 100).toInt()}%)",
+                                "${String.format(java.util.Locale.US, "%.1f", currentClient.currentKgTowardsReward)} / ${threshold} Kg (${(progressFraction * 100).toInt()}%)",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -932,12 +944,190 @@ fun ClientBottomSheet(client: UserEntity, viewModel: AppViewModel, onDismiss: ()
                     }
 
                     Text(
-                        "Total lavé à vie (Statut VIP) : ${client.lifetimeKgWashed} Kg",
+                        "Total lavé à vie (Statut VIP) : ${String.format(java.util.Locale.US, "%.1f", currentClient.lifetimeKgWashed)} Kg",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    if (canManageFidelity) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        Text(
+                            "Personnaliser les Kilos Gratuits de ce client :",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            FilledTonalButton(
+                                onClick = {
+                                    val newFree = currentClient.accumulatedFreeKgs + 1.0
+                                    viewModel.adjustUserFidelity(
+                                        userId = currentClient.id,
+                                        adminId = currentUser?.id ?: "ADMIN",
+                                        newFreeKgs = newFree,
+                                        newTowardsReward = currentClient.currentKgTowardsReward,
+                                        reason = "Ajout rapide de 1 Kg gratuit"
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("+1 Kg", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                            FilledTonalButton(
+                                onClick = {
+                                    val newFree = currentClient.accumulatedFreeKgs + 2.0
+                                    viewModel.adjustUserFidelity(
+                                        userId = currentClient.id,
+                                        adminId = currentUser?.id ?: "ADMIN",
+                                        newFreeKgs = newFree,
+                                        newTowardsReward = currentClient.currentKgTowardsReward,
+                                        reason = "Ajout rapide de 2 Kg gratuits"
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("+2 Kg", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                            FilledTonalButton(
+                                onClick = {
+                                    val newFree = currentClient.accumulatedFreeKgs + 5.0
+                                    viewModel.adjustUserFidelity(
+                                        userId = currentClient.id,
+                                        adminId = currentUser?.id ?: "ADMIN",
+                                        newFreeKgs = newFree,
+                                        newTowardsReward = currentClient.currentKgTowardsReward,
+                                        reason = "Ajout rapide de 5 Kg gratuits"
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("+5 Kg", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    val newFree = (currentClient.accumulatedFreeKgs - 1.0).coerceAtLeast(0.0)
+                                    viewModel.adjustUserFidelity(
+                                        userId = currentClient.id,
+                                        adminId = currentUser?.id ?: "ADMIN",
+                                        newFreeKgs = newFree,
+                                        newTowardsReward = currentClient.currentKgTowardsReward,
+                                        reason = "Déduction de 1 Kg gratuit"
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("-1 Kg", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                customFreeKgsInput = currentClient.accumulatedFreeKgs.toString()
+                                customTowardsInput = currentClient.currentKgTowardsReward.toString()
+                                customReasonInput = ""
+                                showCustomFidelityDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Ajustement sur-mesure (Solde & Jauge)", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
                 }
+            }
+
+            if (showCustomFidelityDialog) {
+                var reasonError by remember { mutableStateOf(false) }
+                AlertDialog(
+                    onDismissRequest = { showCustomFidelityDialog = false },
+                    title = { Text("Personnalisation Kilos Gratuits") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Client : ${currentClient.prenom} ${currentClient.nom}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            OutlinedTextField(
+                                value = customFreeKgsInput,
+                                onValueChange = { customFreeKgsInput = it },
+                                label = { Text("Nouveau solde Kilos Gratuits (Kg)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            OutlinedTextField(
+                                value = customTowardsInput,
+                                onValueChange = { customTowardsInput = it },
+                                label = { Text("Jauge vers prochain palier (Kg)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            OutlinedTextField(
+                                value = customReasonInput,
+                                onValueChange = { customReasonInput = it; reasonError = false },
+                                label = { Text("Motif de l'ajustement (ex: Geste commercial)") },
+                                isError = reasonError,
+                                supportingText = { if (reasonError) Text("Motif requis pour traçabilité", color = MaterialTheme.colorScheme.error) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(
+                                    onClick = { customFreeKgsInput = "0.0" },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("Vider solde", style = MaterialTheme.typography.labelSmall)
+                                }
+                                OutlinedButton(
+                                    onClick = { customTowardsInput = "0.0" },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("Reset jauge", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                if (customReasonInput.isBlank()) {
+                                    reasonError = true
+                                    return@Button
+                                }
+                                val newFree = customFreeKgsInput.toDoubleOrNull() ?: currentClient.accumulatedFreeKgs
+                                val newTowards = customTowardsInput.toDoubleOrNull() ?: currentClient.currentKgTowardsReward
+                                viewModel.adjustUserFidelity(
+                                    userId = currentClient.id,
+                                    adminId = currentUser?.id ?: "ADMIN",
+                                    newFreeKgs = newFree.coerceAtLeast(0.0),
+                                    newTowardsReward = newTowards.coerceAtLeast(0.0),
+                                    reason = customReasonInput.trim()
+                                )
+                                showCustomFidelityDialog = false
+                            }
+                        ) {
+                            Text("Enregistrer")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showCustomFidelityDialog = false }) {
+                            Text("Annuler")
+                        }
+                    }
+                )
             }
 
             if (!client.isArchived) {
@@ -1483,73 +1673,22 @@ fun EditClientProfileDialog(client: UserEntity, viewModel: AppViewModel, onDismi
                 val canManageFidelity = (currentUser?.role == "SUPER_ADMIN" || currentUser?.permissions?.contains("ALL") == true || currentUser?.permissions?.contains("GERER_FIDELITE") == true) && client.role == "CLIENT"
                 
                 if (canManageFidelity) {
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("🎁 Moteur de Fidélité (Kilos Gratuits)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            
-                            OutlinedTextField(
-                                value = freeKgsInput,
-                                onValueChange = { freeKgsInput = it; showErrorReason = false },
-                                label = { Text("Solde Kilos Gratuits Disponibles (Kg)") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            OutlinedTextField(
-                                value = towardsRewardInput,
-                                onValueChange = { towardsRewardInput = it; showErrorReason = false },
-                                label = { Text("Jauge en cours vers prochain palier (Kg)") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            OutlinedTextField(
-                                value = lifetimeKgInput,
-                                onValueChange = { lifetimeKgInput = it; showErrorReason = false },
-                                label = { Text("Cumul Historique Total Linge (Kg)") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            // Motif obligatoire en cas de modification manuelle
-                            val parsedFreeKgsCheck = freeKgsInput.toDoubleOrNull() ?: client.accumulatedFreeKgs
-                            val parsedTowardsCheck = towardsRewardInput.toDoubleOrNull() ?: client.currentKgTowardsReward
-                            val parsedLifetimeCheck = lifetimeKgInput.toDoubleOrNull() ?: client.lifetimeKgWashed
-                            val hasFidelityChanged = parsedFreeKgsCheck != client.accumulatedFreeKgs ||
-                                    parsedTowardsCheck != client.currentKgTowardsReward ||
-                                    parsedLifetimeCheck != client.lifetimeKgWashed
-
-                            if (hasFidelityChanged) {
-                                OutlinedTextField(
-                                    value = adjustmentReason,
-                                    onValueChange = { adjustmentReason = it; showErrorReason = false },
-                                    label = { Text("Motif de l'ajustement (OBLIGATOIRE) *") },
-                                    isError = showErrorReason,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    supportingText = {
-                                        if (showErrorReason) {
-                                            Text("Veuillez renseigner un motif pour la traçabilité de l'audit.", color = MaterialTheme.colorScheme.error)
-                                        } else {
-                                            Text("Requis pour la conformité et l'historique d'audit.")
-                                        }
-                                    }
-                                )
-                            }
-
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Switch(checked = isLoyaltyEnabled, onCheckedChange = { isLoyaltyEnabled = it })
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Programme activé pour ce client")
+                                Text("Programme de fidélité activé", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                             }
                             if (isLoyaltyEnabled) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(checked = isLoyaltyPermanent, onCheckedChange = { isLoyaltyPermanent = it })
-                                    Text("Permanent")
+                                    Text("Validité permanente")
                                 }
                                 if (!isLoyaltyPermanent) {
                                     OutlinedTextField(
@@ -1561,27 +1700,18 @@ fun EditClientProfileDialog(client: UserEntity, viewModel: AppViewModel, onDismi
                                     )
                                 }
                             }
+                            Text(
+                                "💡 Note : Pour ajuster les Kilos Gratuits et la jauge de progression de ce client, utilisez directement les boutons d'ajustement interactifs dans sa fiche.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
             Button(onClick = {
-                val parsedFreeKgs = freeKgsInput.toDoubleOrNull() ?: client.accumulatedFreeKgs
-                val parsedTowards = towardsRewardInput.toDoubleOrNull() ?: client.currentKgTowardsReward
-                val parsedLifetime = lifetimeKgInput.toDoubleOrNull() ?: client.lifetimeKgWashed
-                val hasFidelityChanged = parsedFreeKgs != client.accumulatedFreeKgs ||
-                        parsedTowards != client.currentKgTowardsReward ||
-                        parsedLifetime != client.lifetimeKgWashed
-
-                if (hasFidelityChanged && adjustmentReason.trim().isEmpty()) {
-                    showErrorReason = true
-                    return@Button
-                }
-
-                val parsedFidelity = fidelityKg.toFloatOrNull() ?: initialFidelity
                 val updatedClient = client.copy(
                     nom = nom,
                     prenom = prenom,
@@ -1589,11 +1719,6 @@ fun EditClientProfileDialog(client: UserEntity, viewModel: AppViewModel, onDismi
                     telephone = telephone,
                     coordonnees = coordonnees,
                     motDePasse = password,
-                    fidelityPointsKg = parsedFidelity,
-                    cumulKiloFideliterUser = parsedFidelity.toDouble(),
-                    accumulatedFreeKgs = parsedFreeKgs,
-                    currentKgTowardsReward = parsedTowards,
-                    lifetimeKgWashed = parsedLifetime,
                     nomUser = nom,
                     prenomUser = prenom,
                     mailUser = email,
@@ -1604,18 +1729,6 @@ fun EditClientProfileDialog(client: UserEntity, viewModel: AppViewModel, onDismi
                     loyaltyValidUntil = if (!isLoyaltyEnabled) null else if (isLoyaltyPermanent) null else (System.currentTimeMillis() + (loyaltyDurationDays.toLongOrNull() ?: 0L) * 24 * 60 * 60 * 1000)
                 )
                 viewModel.updateUser(updatedClient)
-
-                if (hasFidelityChanged) {
-                    val diff = parsedFreeKgs - client.accumulatedFreeKgs
-                    val diffStr = if (diff > 0) "+$diff" else "$diff"
-                    viewModel.logAdminAction(
-                        adminId = currentUser?.id ?: "ADMIN",
-                        targetUserId = client.id,
-                        action = "AJUSTEMENT_FIDELITE_MANUEL",
-                        description = "Ajustement Fidélité : $diffStr Kg pour le client ${client.prenom} ${client.nom} (Nouveau solde: $parsedFreeKgs Kg, Jauge: $parsedTowards Kg, VIP: $parsedLifetime Kg). Motif : ${adjustmentReason.trim()}"
-                    )
-                }
-
                 onDismiss()
             }) {
                 Text("Enregistrer")
@@ -1682,7 +1795,7 @@ fun AdminOrdersTab(padding: PaddingValues, allOrders: List<OrderEntity>, viewMod
     
     PullToRefreshBox(
         isRefreshing = isRefreshing,
-        onRefresh = { viewModel.refreshOrderHistory() },
+        onRefresh = { viewModel.refreshOrders() },
         modifier = Modifier.fillMaxSize().padding(padding)
     ) {
         LazyColumn(
@@ -1710,10 +1823,15 @@ fun AdminOrdersTab(padding: PaddingValues, allOrders: List<OrderEntity>, viewMod
                 Column(modifier = Modifier.padding(20.dp).fillMaxWidth()) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Statistiques Générales", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
-                        IconButton(onClick = {
-                            exportOrdersToCSV(context, allOrders, "Toutes_Commandes.csv")
-                        }) {
-                            Icon(Icons.Default.Share, contentDescription = "Exporter tout (CSV)", tint = MaterialTheme.colorScheme.primary)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { viewModel.refreshOrders() }) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Actualiser les commandes", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = {
+                                exportOrdersToCSV(context, allOrders, "Toutes_Commandes.csv")
+                            }) {
+                                Icon(Icons.Default.Share, contentDescription = "Exporter tout (CSV)", tint = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
@@ -2155,9 +2273,27 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
         }
     }
 
-    val cameraLauncher = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicturePreview()) { bitmap ->
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            photoUriInput = uri.toString()
+        }
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
         if (bitmap != null) {
-            photoUriInput = "photo_${System.currentTimeMillis()}.png"
+            try {
+                val file = java.io.File(context.cacheDir, "admin_order_photo_${System.currentTimeMillis()}.jpg")
+                java.io.FileOutputStream(file).use { out ->
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                }
+                photoUriInput = android.net.Uri.fromFile(file).toString()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -2362,10 +2498,31 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = { cameraLauncher.launch(null) }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (photoUriInput.isNotBlank()) "Photo Capturée" else "Prendre une photo des tâches")
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { cameraLauncher.launch(null) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (photoUriInput.isNotBlank()) "Photo Prise ✓" else "Prendre photo")
+                    }
+                    Button(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                androidx.activity.result.PickVisualMediaRequest(
+                                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                )
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Galerie")
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -2446,12 +2603,8 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
                             categorie = categorieInput,
                             lavageType = lavageTypeInput,
                             kg = k,
-                            weight = k.toDouble(),
                             usedFreeKgs = safeUsedFreeKgs,
-                            fideliteKgUtilise = safeUsedFreeKgs,
-                            fidelityKgUsed = safeUsedFreeKgs.toFloat(),
                             prixFinal = calcPrice.toFloat(),
-                            totalPrice = calcPrice,
                             adminMessage = adminMessageInput,
                             status = "PROPOSITION_ADMIN",
                             specialItemsData = specialItemsStr,
@@ -2487,7 +2640,7 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
                         Text("${order.prixFinal.toInt()} FCFA", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
 
-                    val freeKgsUsed = if (order.usedFreeKgs > 0.0) order.usedFreeKgs else (if (order.fidelityKgUsed > 0) order.fidelityKgUsed.toDouble() else order.fideliteKgUtilise)
+                    val freeKgsUsed = order.usedFreeKgs
                     if (freeKgsUsed > 0 || order.discountFixed > 0) {
                         Surface(
                             color = Color(0xFFE8F5E9),
@@ -2550,11 +2703,24 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
                     Spacer(modifier = Modifier.height(8.dp))
 
                     if (order.status == "EN_ATTENTE" && canManageOrders) {
+                        var weightError by remember { mutableStateOf(false) }
+
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedTextField(
                             value = kgInput,
-                            onValueChange = { kgInput = it },
-                            label = { Text("Poids après pesée (Kg)") },
+                            onValueChange = { 
+                                kgInput = it
+                                weightError = false
+                            },
+                            label = { Text("Poids après pesée (Kg) * Requis") },
+                            isError = weightError,
+                            supportingText = {
+                                if (weightError) {
+                                    Text("Le poids en Kg (> 0) est obligatoire pour accepter la commande.", color = MaterialTheme.colorScheme.error)
+                                } else {
+                                    Text("Renseignez la pesée réelle du lot.")
+                                }
+                            },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
@@ -2590,7 +2756,11 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { 
-                                    val k = kgInput.toFloatOrNull() ?: order.kg
+                                    val k = kgInput.toFloatOrNull() ?: 0f
+                                    if (k <= 0f) {
+                                        weightError = true
+                                        return@Button
+                                    }
                                     val clientAvailableFreeKgs = (client?.accumulatedFreeKgs ?: 0.0) + order.usedFreeKgs
                                     val enteredUsed = usedFreeKgsInput.toDoubleOrNull() ?: order.usedFreeKgs
                                     val safeUsedFreeKgs = enteredUsed.coerceIn(0.0, minOf(k.toDouble(), clientAvailableFreeKgs))
@@ -2606,7 +2776,7 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
                                         }
                                     }
                                     val validPromo = allPromos.find { it.code == order.promoCode }
-                                    var calcPrice = calculateOrderPrice(
+                                    val calcPrice = calculateOrderPrice(
                                         pieces = order.pieces,
                                         kg = k,
                                         lavageType = order.lavageType,
@@ -2634,35 +2804,91 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
                                         )
                                     }
 
+                                    // L'administrateur accepte la commande après pesée : status = "ACCEPTE", timelineStep = 1
+                                    viewModel.updateOrder(order.copy(
+                                        status = "ACCEPTE",
+                                        timelineStep = 1,
+                                        kg = k,
+                                        usedFreeKgs = safeUsedFreeKgs,
+                                        prixFinal = calcPrice.toFloat()
+                                    ))
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                modifier = Modifier.weight(1.2f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Accepter (Pesée validée)")
+                            }
+                            Button(
+                                onClick = { 
+                                    val k = kgInput.toFloatOrNull() ?: order.kg
+                                    val clientAvailableFreeKgs = (client?.accumulatedFreeKgs ?: 0.0) + order.usedFreeKgs
+                                    val enteredUsed = usedFreeKgsInput.toDoubleOrNull() ?: order.usedFreeKgs
+                                    val safeUsedFreeKgs = enteredUsed.coerceIn(0.0, minOf(k.toDouble(), clientAvailableFreeKgs))
+
+                                    val itemsCostMap = mutableMapOf<String, Float>()
+                                    order.specialItemsData.split(",").filter { it.isNotBlank() }.forEach { 
+                                        val parts = it.split(":")
+                                        if (parts.size == 2) {
+                                            val pSpec = specialItems.find { item -> item.name == parts[0] }?.price
+                                            val pGom = gommageItems.find { item -> item.name == parts[0] }?.price
+                                            val p = pSpec ?: (pGom ?: 0f)
+                                            itemsCostMap[parts[0]] = p * (parts[1].toIntOrNull() ?: 0)
+                                        }
+                                    }
+                                    val validPromo = allPromos.find { it.code == order.promoCode }
+                                    val calcPrice = calculateOrderPrice(
+                                        pieces = order.pieces,
+                                        kg = k,
+                                        lavageType = order.lavageType,
+                                        config = config,
+                                        isExpress = order.isExpress,
+                                        isPremium = order.hasPremiumGuarantee,
+                                        promo = validPromo,
+                                        specialItemsCostMap = itemsCostMap,
+                                        transportFee = order.transportFee,
+                                        gommageItemsList = gommageItems,
+                                        usedFreeKgs = safeUsedFreeKgs
+                                    )
+
                                     viewModel.updateOrder(order.copy(
                                         status = "PROPOSITION_ADMIN",
                                         timelineStep = 1,
                                         kg = k,
-                                        weight = k.toDouble(),
                                         usedFreeKgs = safeUsedFreeKgs,
-                                        fideliteKgUtilise = safeUsedFreeKgs,
-                                        fidelityKgUsed = safeUsedFreeKgs.toFloat(),
                                         prixFinal = calcPrice.toFloat(),
-                                        totalPrice = calcPrice
+                                        adminMessage = adminMessageInput
                                     ))
                                 },
-                                modifier = Modifier.weight(1.2f)
+                                modifier = Modifier.weight(0.9f),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("Proposer le prix")
-                            }
-                            Button(
-                                onClick = { isEditing = true },
-                                modifier = Modifier.weight(0.8f)
-                            ) {
-                                Text("Modifier")
+                                Text("Proposer prix")
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = { viewModel.updateOrder(order.copy(status = "REJETE")) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Rejeter", color = MaterialTheme.colorScheme.error)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { isEditing = true },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Modifier")
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.updateOrder(order.copy(status = "REJETE")) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Rejeter")
+                            }
                         }
                     } else if (order.status == "PROPOSITION_ADMIN" && canManageOrders) {
                         Spacer(modifier = Modifier.height(16.dp))
@@ -2713,49 +2939,93 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
                         ) {
                             Text("Annuler / Rejeter la commande", color = MaterialTheme.colorScheme.error)
                         }
-                    } else if (order.status == "ACCEPTE" && canManageOrders) {
+                    } else if ((order.status == "ACCEPTE" || order.status == "EN_COURS" || order.status == "PRET") && canManageOrders) {
                         Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Unified interactive timeline controller (Step 1 to 5)
                         Surface(
                             color = Color(0xFFE8F5E9),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text("✅ Le client a validé la commande !", color = Color(0xFF1B5E20), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                    Text("Le devis proposé (${order.kg} Kg • ${order.prixFinal.toInt()} FCFA) a été accepté. Vous pouvez lancer le traitement.", color = Color(0xFF2E7D32), style = MaterialTheme.typography.bodySmall)
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                val currentStep = order.timelineStep.coerceIn(1, 5)
+                                val stepLabels = listOf(
+                                    "1. Pesée validée / Acceptée",
+                                    "2. En Lavage",
+                                    "3. En Séchage",
+                                    "4. Repassage & Pliage (Prête)",
+                                    "5. Terminée / Livrée"
+                                )
+                                Text(
+                                    text = "Progression : ${stepLabels.getOrElse(currentStep - 1) { "Étape $currentStep" }}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1B5E20)
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                LinearProgressIndicator(
+                                    progress = { currentStep / 5f },
+                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                    color = Color(0xFF2E7D32),
+                                    trackColor = Color(0xFFC8E6C9)
+                                )
+                            }
+                        }
+
+                        when (order.timelineStep) {
+                            0, 1 -> {
+                                Button(
+                                    onClick = { viewModel.updateOrder(order.copy(timelineStep = 2, status = "ACCEPTE")) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Lancer le lavage (Étape 2)")
                                 }
                             }
-                        }
-                        Button(
-                            onClick = { viewModel.updateOrder(order.copy(status = "EN_COURS", timelineStep = 2)) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Démarrer le lavage (En Plein lavage)")
-                        }
-                    } else if (order.status == "EN_COURS" && canManageOrders) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        if (order.timelineStep == 2) {
-                            Button(onClick = { viewModel.updateOrder(order.copy(timelineStep = 3)) }, modifier = Modifier.fillMaxWidth()) {
-                                Text("En séchage")
+                            2 -> {
+                                Button(
+                                    onClick = { viewModel.updateOrder(order.copy(timelineStep = 3, status = "ACCEPTE")) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Passer au Séchage (Étape 3)")
+                                }
                             }
-                        } else if (order.timelineStep == 3) {
-                            Button(onClick = { viewModel.updateOrder(order.copy(timelineStep = 4)) }, modifier = Modifier.fillMaxWidth()) {
-                                Text("En Repassage")
+                            3 -> {
+                                Button(
+                                    onClick = { viewModel.updateOrder(order.copy(timelineStep = 4, status = "ACCEPTE")) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Passer au Repassage & Pliage (Étape 4)")
+                                }
                             }
-                        } else if (order.timelineStep == 4) {
-                            Button(onClick = { viewModel.updateOrder(order.copy(status = "TERMINE", timelineStep = 5)) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))) {
-                                Text("Finalisation du Service")
+                            4 -> {
+                                Button(
+                                    onClick = { viewModel.updateOrder(order.copy(timelineStep = 5, status = "TERMINE")) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Finalisation du Service (Étape 5 : Terminée)")
+                                }
                             }
-                        } else {
-                            Button(onClick = { viewModel.updateOrder(order.copy(timelineStep = 3)) }, modifier = Modifier.fillMaxWidth()) {
-                                Text("En séchage")
+                            else -> {
+                                Button(
+                                    onClick = { viewModel.updateOrder(order.copy(timelineStep = 5, status = "TERMINE")) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Clôturer la commande (Terminée)")
+                                }
                             }
                         }
                     }
@@ -2805,6 +3075,41 @@ fun AdminOrderCard(order: OrderEntity, viewModel: AppViewModel) {
     }
 }
 
+/**
+ * Implémentation harmonisée du calcul tarifaire (Section 3 - Modèle Canonique Client/Admin).
+ */
+fun calculatePrice(order: OrderEntity, kg: Float, config: com.example.data.ConfigEntity?): Float {
+    val effectiveKg = maxOf(0f, kg - order.usedFreeKgs.toFloat())
+    val prixLavage = when (order.lavageType) {
+        "SIMPLE", "Lavage simple" -> 350f * effectiveKg
+        "LAVAGE_SECHAGE_PLIAGE", "Lavage + séchage + pliage" -> 400f * effectiveKg
+        "LAVAGE_SECHAGE_REPASSAGE_PLIAGE", "Lavage + séchage + repassage + pliage" -> 500f * effectiveKg
+        else -> 0f
+    }
+    val prixGommage = (order.gommagePaire * 1500f) + (order.gommageImpair * 2000f)
+    var prixSpecial = 0f
+    if (order.specialItemsData.isNotBlank()) {
+        order.specialItemsData.split(";").forEach { item ->
+            val parts = item.split("|")
+            if (parts.size == 3) {
+                val price = parts[1].toFloatOrNull() ?: 0f
+                val qty = parts[2].toIntOrNull() ?: 0
+                prixSpecial += price * qty
+            }
+        }
+    }
+    val sousTotal = prixLavage + prixGommage + prixSpecial
+    val insuranceFee = if (order.hasPremiumGuarantee) sousTotal * 0.1f else 0f
+    val multiplier = if (order.isExpress) (config?.expressMultiplier ?: 1.3f) else 1.0f
+    val discount = 1f - order.discountPercentage
+    val totalAvecExpress = maxOf(0f, ((sousTotal + insuranceFee) * multiplier * discount) - order.discountFixed)
+    val transport = if (order.deliveryType == "DOMICILE") {
+        (config?.baseTransportFee ?: 1000f) + (order.distanceKm * (config?.pricePerKm ?: 500f))
+    } else {
+        0f
+    }
+    return totalAvecExpress + transport
+}
 
 fun calculateOrderPrice(
     pieces: Int,
@@ -4698,6 +5003,7 @@ fun TrashItemCard(title: String, details: String = "", onRestore: () -> Unit, on
 @Composable
 fun AdminPublicitesTab(padding: PaddingValues, viewModel: AppViewModel) {
     val announcements by viewModel.allAnnouncements.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     var showDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<com.example.data.AnnouncementEntity?>(null) }
     
@@ -4706,22 +5012,36 @@ fun AdminPublicitesTab(padding: PaddingValues, viewModel: AppViewModel) {
     var imageUrlInput by remember { mutableStateOf("") }
     var isVisibleInput by remember { mutableStateOf(true) }
 
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item {
-            Text("Gestion des Publicités & Annonces", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Button(onClick = { 
-                editingItem = null
-                titleInput = ""
-                messageInput = ""
-                imageUrlInput = ""
-                isVisibleInput = true
-                showDialog = true 
-            }, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Nouvelle Publicité")
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshAnnouncements() },
+        modifier = Modifier.fillMaxSize().padding(padding)
+    ) {
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Gestion des Publicités & Annonces", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { viewModel.refreshAnnouncements() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Actualiser les annonces", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Button(onClick = { 
+                    editingItem = null
+                    titleInput = ""
+                    messageInput = ""
+                    imageUrlInput = ""
+                    isVisibleInput = true
+                    showDialog = true 
+                }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Nouvelle Publicité")
+                }
             }
-        }
         
         items(announcements) { ann ->
             Card(modifier = Modifier.fillMaxWidth().clickable {
@@ -4746,6 +5066,7 @@ fun AdminPublicitesTab(padding: PaddingValues, viewModel: AppViewModel) {
                 }
             }
         }
+    }
     }
     
     if (showDialog) {

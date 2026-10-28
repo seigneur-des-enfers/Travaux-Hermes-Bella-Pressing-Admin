@@ -62,13 +62,33 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
         }
     }
 
-    fun refreshOrderHistory() {
+    fun refreshOrders() {
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
+                com.example.di.Graph.adminOrderRepository.syncActiveOrdersRealtime()
+                com.example.di.Graph.adminOrderRepository.fetchActiveOrders()
                 com.example.di.Graph.adminOrderRepository.fetchHistoricalOrders(100)
             } catch (e: Exception) {
-                Log.e("AppViewModel", "Erreur lors du rafraîchissement de l'historique: ${e.message}", e)
+                Log.e("AppViewModel", "Erreur lors du rafraîchissement des commandes: ${e.message}", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun refreshOrderHistory() {
+        refreshOrders()
+    }
+
+    fun refreshAnnouncements() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                repository.fetchAnnouncements()
+                repository.fetchPromos()
+            } catch (e: Exception) {
+                Log.e("AppViewModel", "Erreur lors du rafraîchissement des annonces: ${e.message}", e)
             } finally {
                 _isRefreshing.value = false
             }
@@ -105,9 +125,13 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
+                com.example.di.Graph.adminOrderRepository.syncActiveOrdersRealtime()
                 repository.fetchClients()
                 repository.fetchCatalog()
                 repository.fetchSettings()
+                repository.fetchAnnouncements()
+                repository.fetchPromos()
+                com.example.di.Graph.adminOrderRepository.fetchActiveOrders()
                 com.example.di.Graph.adminOrderRepository.fetchHistoricalOrders(100)
             } catch (e: Exception) {
                 Log.e("AppViewModel", "Erreur lors du rafraîchissement global: ${e.message}", e)
@@ -128,9 +152,13 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
     val currentUser = _currentUser.asStateFlow()
     val allAnnouncements = repository.allAnnouncements.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     val allActivityLogs = repository.getAllActivityLogs().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
-    
 
     init {
+        try {
+            com.example.di.Graph.adminOrderRepository.syncActiveOrdersRealtime()
+        } catch (e: Throwable) {
+            Log.e("AppViewModel", "Erreur lancement syncActiveOrdersRealtime: ${e.message}", e)
+        }
         viewModelScope.launch {
             com.example.data.FirestoreSyncManager.isQuotaExhausted.collect { isExhausted ->
                 if (isExhausted) {
@@ -418,6 +446,66 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
                 _currentUser.value = updatedUser
             }
             pushUserToFirestoreDirect(updatedUser)
+        }
+    }
+
+    fun getUserByIdFlow(id: String): Flow<UserEntity?> = repository.getUserByIdFlow(id)
+
+    /**
+     * Ajuste directement et instantanément la fidélité d'un client (kilos gratuits, palier, progression).
+     */
+    fun adjustUserFidelity(
+        userId: String,
+        adminId: String? = null,
+        newFreeKgs: Double? = null,
+        newTowardsReward: Double? = null,
+        deltaFreeKgs: Double? = null,
+        exactFreeKgs: Double? = null,
+        deltaTowardsReward: Double? = null,
+        exactTowardsReward: Double? = null,
+        grantRewardTier: Boolean = false,
+        reason: String = "Ajustement direct par l'administrateur"
+    ) {
+        viewModelScope.launch {
+            val user = repository.getUserById(userId) ?: return@launch
+            val conf = config.value
+            val threshold = (conf?.loyaltyKgThreshold ?: 10.0).coerceAtLeast(1.0)
+            val rewardAmount = (conf?.loyaltyKgReward ?: 1.0).coerceAtLeast(0.5)
+
+            var targetFreeKgs = user.accumulatedFreeKgs
+            val explicitFree = newFreeKgs ?: exactFreeKgs
+            if (explicitFree != null) {
+                targetFreeKgs = explicitFree.coerceAtLeast(0.0)
+            } else if (deltaFreeKgs != null) {
+                targetFreeKgs = (targetFreeKgs + deltaFreeKgs).coerceAtLeast(0.0)
+            }
+
+            var targetTowards = user.currentKgTowardsReward
+            val explicitTowards = newTowardsReward ?: exactTowardsReward
+            if (explicitTowards != null) {
+                targetTowards = explicitTowards.coerceAtLeast(0.0)
+            } else if (deltaTowardsReward != null) {
+                targetTowards = (targetTowards + deltaTowardsReward).coerceAtLeast(0.0)
+            }
+
+            if (grantRewardTier) {
+                targetFreeKgs += rewardAmount
+                targetTowards = (targetTowards - threshold).coerceAtLeast(0.0)
+            }
+
+            val updated = user.copy(
+                accumulatedFreeKgs = targetFreeKgs,
+                currentKgTowardsReward = targetTowards,
+                fidelityPointsKg = targetFreeKgs.toFloat(),
+                cumulKiloFideliterUser = targetFreeKgs
+            )
+            updateUser(updated)
+            logAdminAction(
+                adminId = adminId ?: (currentUser.value?.id ?: "ADMIN"),
+                targetUserId = user.id,
+                action = "AJUSTEMENT_FIDELITE_DIRECT",
+                description = "Fidélité ajustée pour ${user.prenom} ${user.nom} : Solde=${targetFreeKgs} Kg, Progression=${targetTowards}/${threshold} Kg. Motif: $reason"
+            )
         }
     }
 
@@ -976,9 +1064,9 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
         viewModelScope.launch {
             repository.updateOrder(order)
             
-            val isFinished = order.status == "TERMINE" || order.status == "LIVRE" || order.orderLivree
-            val orderWeight = if (order.weight > 0.0) order.weight else order.kg.toDouble()
-            if (isFinished && orderWeight > 0.0 && !order.isLoyaltyPointsGranted && !order.fidelityCredited) {
+            val isFinished = order.status == "TERMINE" || order.status == "LIVRE" || order.timelineStep == 5
+            val orderWeight = order.kg.toDouble()
+            if (isFinished && orderWeight > 0.0 && !order.isLoyaltyPointsGranted) {
                 // Update fidelity points & Kilos Gratuits
                 val user = repository.getUserById(order.userId)
                 val currentConfig = config.value
@@ -1031,8 +1119,6 @@ class AppViewModel(private val repository: AppRepository) : ViewModel() {
                     }
                 }
                 val creditedOrder = order.copy(
-                    fidelityCredited = true,
-                    fideliteCredite = true,
                     isLoyaltyPointsGranted = true
                 )
                 repository.updateOrder(creditedOrder)

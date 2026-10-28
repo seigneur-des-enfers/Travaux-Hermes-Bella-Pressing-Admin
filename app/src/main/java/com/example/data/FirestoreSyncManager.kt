@@ -85,15 +85,24 @@ class FirestoreSyncManager(
         }
         val db = firestore ?: return
 
-        // --- OPTIMISATION DU QUOTA FIRESTORE (ÉTAPE 2/6) ---
-        // Éradication totale des addSnapshotListener permanents sur les collections massives (clients, catalogue, historique, paramètres, etc.).
-        // L'Admin ne dispose de temps réel QUE pour les commandes nécessitant une action (AdminOrderRepository.syncActiveOrdersRealtime).
-        // Tout le reste passe en chargement ponctuel et sur Pull-to-Refresh via get().await().
+        // --- SYNCHRONISATION OPTIMISÉE & TEMPS RÉEL CIBLÉ ---
+        // 1. Démarrage de l'écouteur temps réel ciblé sur les commandes en cours (orders & commandes)
+        try {
+            com.example.di.Graph.adminOrderRepository.syncActiveOrdersRealtime()
+        } catch (e: Throwable) {
+            Log.e("FirestoreSyncManager", "Erreur lancement syncActiveOrdersRealtime: ${e.message}", e)
+        }
+
+        // 2. Chargement ponctuel one-shot via get().await() pour protéger les quotas Spark
         scope.launch(Dispatchers.IO) {
             try {
                 repository.fetchSettings()
                 repository.fetchClients()
                 repository.fetchCatalog()
+                repository.fetchAnnouncements()
+                repository.fetchPromos()
+                com.example.di.Graph.adminOrderRepository.fetchActiveOrders()
+                com.example.di.Graph.adminOrderRepository.fetchHistoricalOrders(100)
             } catch (e: Throwable) {
                 Log.e("FirestoreSyncManager", "Erreur lors du chargement initial one-shot get().await(): ${e.message}", e)
             }
@@ -1070,80 +1079,7 @@ class FirestoreSyncManager(
     private suspend fun pushOrderToFirestore(order: OrderEntity) {
         val db = firestore ?: return
         try {
-            val orderMap = mutableMapOf<String, Any?>(
-                "kg" to (if (order.weight > 0.0) order.weight else order.kg.toDouble()),
-                "status" to order.status,
-                "prixFinal" to (if (order.totalPrice > 0.0) order.totalPrice else order.prixFinal.toDouble()),
-                "timelineStep" to order.timelineStep,
-                "adminMessage" to order.adminMessage,
-                "isArchived" to order.isArchived,
-                "photoUri" to order.photoUri,
-                "imageUrl" to order.photoUri,
-                "appareilPhoto" to order.photoUri,
-
-                // New Schema integration
-                "autoCompletionInfos" to order.autoCompletionInfos,
-                "nombrePieces" to order.nombrePieces,
-                "choixCategory" to order.choixCategory,
-                "lavageSimple" to order.lavageSimple,
-                "lavageSechagePliage" to order.lavageSechagePliage,
-                "lavageSechagePliageRepassage" to order.lavageSechagePliageRepassage,
-                "articlesUniquement" to order.articlesUniquement,
-                "choixArticleSpeciaux" to order.choixArticleSpeciaux,
-                "choixArticleGommage" to order.choixArticleGommage,
-                "estimationKilo" to order.estimationKilo,
-                "depotAgence" to order.depotAgence,
-                "dateHeureDepot" to order.dateHeureDepot,
-                "dateHeureRetrait" to order.dateHeureRetrait,
-                "ramassage" to order.ramassage,
-                "coordonneesMaps" to order.coordonneesMaps,
-                "instructionsSpecial" to order.instructionsSpecial,
-                "serviceExpress" to order.serviceExpress,
-                "garantiVIP" to order.garantiVIP,
-                "saisiCodePromos" to order.saisiCodePromos,
-                "prixEstimerAutoCalcul" to order.prixEstimerAutoCalcul,
-                "orderRecu" to order.orderRecu,
-                "enPleinLavage" to order.enPleinLavage,
-                "enSechage" to order.enSechage,
-                "orderPret" to order.orderPret,
-                "orderLivree" to order.orderLivree,
-                "avisUsers" to order.avisUsers,
-                "fidelityKgUsed" to order.fidelityKgUsed,
-                "fideliteKgUtilise" to order.fideliteKgUtilise,
-                "fidelityCredited" to order.fidelityCredited,
-                "fideliteCredite" to order.fideliteCredite,
-
-                // Enriched Admin & Livreur fields
-                "weight" to order.weight,
-                "totalPrice" to order.totalPrice,
-                "adminNotes" to order.adminNotes,
-                "deliveryBoyId" to order.deliveryBoyId,
-                "customerName" to order.customerName,
-                "customerPhone" to order.customerPhone,
-                "deliveryAddress" to order.deliveryAddress
-            )
-            if (order.transportFee > 0) orderMap["transportFee"] = order.transportFee
-            if (order.pickupDate.isNotEmpty()) orderMap["pickupDate"] = order.pickupDate
-            if (order.deliveryDate.isNotEmpty()) orderMap["deliveryDate"] = order.deliveryDate
-            if (order.pieces > 0) orderMap["pieces"] = order.pieces
-            if (order.categorie.isNotEmpty()) orderMap["categorie"] = order.categorie
-            if (order.lavageType.isNotEmpty()) orderMap["lavageType"] = order.lavageType
-            if (order.createdAt > 0) orderMap["createdAt"] = order.createdAt
-            if (order.rating > 0) orderMap["rating"] = order.rating
-            if (order.clientComment.isNotEmpty()) orderMap["clientComment"] = order.clientComment
-            if (order.adresseLivraison.isNotEmpty()) orderMap["adresseLivraison"] = order.adresseLivraison
-            if (order.isExpress) orderMap["isExpress"] = order.isExpress
-            if (order.instructionsSpeciales.isNotEmpty()) orderMap["instructionsSpeciales"] = order.instructionsSpeciales
-            if (order.deliveryType.isNotEmpty()) orderMap["deliveryType"] = order.deliveryType
-            if (order.specialItemsData.isNotEmpty()) orderMap["specialItemsData"] = order.specialItemsData
-            if (order.latitude != 0.0) orderMap["latitude"] = order.latitude
-            if (order.longitude != 0.0) orderMap["longitude"] = order.longitude
-            if (order.distanceKm > 0) orderMap["distanceKm"] = order.distanceKm
-            if (order.promoCode.isNotEmpty()) orderMap["promoCode"] = order.promoCode
-            if (order.discountPercentage > 0) orderMap["discountPercentage"] = order.discountPercentage
-            if (order.discountFixed > 0) orderMap["discountFixed"] = order.discountFixed
-            if (order.hasPremiumGuarantee) orderMap["hasPremiumGuarantee"] = order.hasPremiumGuarantee
-            if (order.insuranceFee > 0) orderMap["insuranceFee"] = order.insuranceFee
+            val orderMap = OrderMapper.toFirestoreMap(order)
 
             // Push to both "orders" and "ordres"!
             db.collection("orders").document(order.id).set(orderMap, SetOptions.merge()).await()

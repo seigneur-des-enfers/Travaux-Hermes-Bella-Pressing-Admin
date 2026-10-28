@@ -107,80 +107,148 @@ class AdminOrderRepository(
      * En cas d'erreur RESOURCE_EXHAUSTED ou UNAVAILABLE, coupe immédiatement le listener
      * sans détruire les Flows Room.
      */
+    // Références actives des listeners Firestore
+    private val activeOrdersListeners = mutableListOf<ListenerRegistration>()
+
+    /**
+     * Écoute en temps réel les commandes actives pour préserver les quotas Spark.
+     * Écoute simultanément 'orders' et 'commandes' et insère directement dans Room.
+     */
     @Synchronized
-    fun syncActiveOrdersRealtime(): ListenerRegistration? {
-        if (activeOrdersListener != null) return activeOrdersListener
+    fun syncActiveOrdersRealtime(): List<ListenerRegistration> {
+        if (activeOrdersListeners.isNotEmpty()) return activeOrdersListeners
 
         val activeStatuses = listOf("EN_ATTENTE", "PROPOSITION_ADMIN", "EN_COURS", "PRET", "ACCEPTE", "EN_LIVRAISON")
+        val collections = listOf("orders", "commandes")
 
-        activeOrdersListener = db.collection("orders")
-            .whereIn("status", activeStatuses)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    if (error.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
-                        FirestoreSyncManager.triggerQuotaExhausted()
-                    }
-                    if (error.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED ||
-                        error.code == FirebaseFirestoreException.Code.UNAVAILABLE ||
-                        error.code == FirebaseFirestoreException.Code.DEADLINE_EXCEEDED
-                    ) {
-                        Log.w(TAG, "Quota Firestore épuisé (${error.code}). Arrêt de l'écouteur pour protéger le Spark Plan.")
-                        activeOrdersListener?.remove()
-                        activeOrdersListener = null
-                        _isQuotaExceeded.value = true
+        for (colName in collections) {
+            try {
+                val reg = db.collection(colName)
+                    .whereIn("status", activeStatuses)
+                    .addSnapshotListener { snapshot, error ->
+                        if (error != null) {
+                            if (error.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
+                                FirestoreSyncManager.triggerQuotaExhausted()
+                            }
+                            if (error.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED ||
+                                error.code == FirebaseFirestoreException.Code.UNAVAILABLE ||
+                                error.code == FirebaseFirestoreException.Code.DEADLINE_EXCEEDED
+                            ) {
+                                Log.w(TAG, "Quota Firestore épuisé (${error.code}) sur $colName. Arrêt temporaire pour protéger le Spark Plan.")
+                                stopRealtimeSync()
+                                _isQuotaExceeded.value = true
+                                appContext?.let { QuotaRetryWorker.enqueueWork(it) }
+                                return@addSnapshotListener
+                            }
+                            Log.w(TAG, "Écoute temps réel $colName: ${error.message}")
+                            return@addSnapshotListener
+                        }
 
-                        // Planification du Worker pour traitement différé automatique
-                        appContext?.let { QuotaRetryWorker.enqueueWork(it) }
-                        return@addSnapshotListener
-                    }
-                    Log.e(TAG, "Erreur écoute temps réel des commandes actives: ${error.message}", error)
-                    return@addSnapshotListener
-                }
+                        _isQuotaExceeded.value = false
+                        if (snapshot == null || snapshot.isEmpty) {
+                            return@addSnapshotListener
+                        }
 
-                // Réseau actif et données valides
-                _isQuotaExceeded.value = false
-
-                // SÉCURITÉ 1 : Ne rien faire si le snapshot est null ou vide
-                if (snapshot == null || snapshot.isEmpty) {
-                    return@addSnapshotListener
-                }
-
-                // SÉCURITÉ 2 : Ignore les événements locaux pour éviter les boucles d'actualisation UI
-                if (snapshot.metadata.hasPendingWrites()) {
-                    return@addSnapshotListener
-                }
-
-                // Traitement asynchrone sur Dispatchers.IO
-                ioScope.launch {
-                    try {
-                        for (change in snapshot.documentChanges) {
-                            val doc = change.document
-                            when (change.type) {
-                                DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED -> {
-                                    val orderEntity = OrderMapper.fromDocument(doc)
-                                    orderDao.insertOrder(orderEntity)
+                        ioScope.launch {
+                            try {
+                                for (change in snapshot.documentChanges) {
+                                    val doc = change.document
+                                    when (change.type) {
+                                        DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED -> {
+                                            val orderEntity = OrderMapper.fromDocument(doc)
+                                            orderDao.insertOrder(orderEntity)
+                                        }
+                                        DocumentChange.Type.REMOVED -> {
+                                            orderDao.deleteOrderById(doc.id)
+                                        }
+                                    }
                                 }
-                                DocumentChange.Type.REMOVED -> {
-                                    orderDao.deleteOrderById(doc.id)
-                                }
+                            } catch (e: Throwable) {
+                                Log.e(TAG, "Erreur insertion Room des commandes actives ($colName): ${e.message}", e)
                             }
                         }
-                    } catch (e: Throwable) {
-                        Log.e(TAG, "Erreur insertion Room des commandes actives: ${e.message}", e)
                     }
-                }
+                activeOrdersListeners.add(reg)
+            } catch (e: Throwable) {
+                Log.w(TAG, "Erreur initialisation listener $colName: ${e.message}")
             }
+        }
 
-        return activeOrdersListener
+        return activeOrdersListeners
     }
 
     /**
-     * Stoppe le listener actif pour libérer les ressources.
+     * Stoppe tous les listeners actifs pour libérer les ressources.
      */
     @Synchronized
     fun stopRealtimeSync() {
-        activeOrdersListener?.remove()
+        for (reg in activeOrdersListeners) {
+            try { reg.remove() } catch (_: Throwable) {}
+        }
+        activeOrdersListeners.clear()
         activeOrdersListener = null
+    }
+
+    /**
+     * Récupération ponctuelle des commandes actives (En cours, En attente, etc.)
+     * pour l'actualisation manuelle de l'interface (Pull-to-Refresh & bouton Actualiser).
+     */
+    suspend fun fetchActiveOrders(): Result<List<OrderEntity>> = withContext(Dispatchers.IO) {
+        if (_isQuotaExceeded.value) {
+            return@withContext Result.failure(Exception("Mode dégradé actif : consultation des commandes actives locales."))
+        }
+
+        val activeStatuses = listOf(
+            "EN_ATTENTE", "PROPOSITION_ADMIN", "EN_COURS", "PRET", "ACCEPTE", "EN_LIVRAISON"
+        )
+        val collections = listOf("orders", "commandes")
+        val fetchedOrders = mutableListOf<OrderEntity>()
+
+        for (colName in collections) {
+            try {
+                val snapshot = withTimeout(10000L) {
+                    db.collection(colName)
+                        .whereIn("status", activeStatuses)
+                        .get()
+                        .await()
+                }
+                for (doc in snapshot.documents) {
+                    val entity = OrderMapper.fromDocument(doc)
+                    if (!entity.isArchived && entity.status != "TERMINE" && entity.status != "REJETE") {
+                        fetchedOrders.add(entity)
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "whereIn fetchActiveOrders sur $colName: ${e.message}")
+            }
+
+            // Fallback si la requête filtrée n'a rien retourné (ex: insensible à la casse ou champ statut)
+            if (fetchedOrders.isEmpty()) {
+                try {
+                    val snapshotAll = withTimeout(10000L) {
+                        db.collection(colName)
+                            .limit(50L)
+                            .get()
+                            .await()
+                    }
+                    for (doc in snapshotAll.documents) {
+                        val entity = OrderMapper.fromDocument(doc)
+                        if (!entity.isArchived && entity.status != "TERMINE" && entity.status != "REJETE") {
+                            fetchedOrders.add(entity)
+                        }
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "fallback fetchActiveOrders sur $colName: ${e.message}")
+                }
+            }
+        }
+
+        val distinctOrders = fetchedOrders.distinctBy { it.id }
+        for (order in distinctOrders) {
+            orderDao.insertOrder(order)
+        }
+        _isQuotaExceeded.value = false
+        Result.success(distinctOrders)
     }
 
     /**
@@ -220,16 +288,34 @@ class AdminOrderRepository(
         try {
             val historicalStatuses = listOf("LIVRE", "TERMINE", "ANNULE", "REJETE")
 
-            val snapshot = withTimeout(10000L) {
-                db.collection("orders")
-                    .whereIn("status", historicalStatuses)
-                    .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
-                    .limit(100L)
-                    .get()
-                    .await()
+            // Requête optimisée avec repli automatique sans orderBy si l'index composite Firestore est en cours de création
+            val snapshot = try {
+                withTimeout(10000L) {
+                    db.collection("orders")
+                        .whereIn("status", historicalStatuses)
+                        .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                        .limit(limit.toLong())
+                        .get()
+                        .await()
+                }
+            } catch (e: FirebaseFirestoreException) {
+                if (e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION) {
+                    Log.w(TAG, "Index composite status+createdAt non disponible sur Firestore. Repli sur requête sans index et tri local en mémoire.")
+                    withTimeout(10000L) {
+                        db.collection("orders")
+                            .whereIn("status", historicalStatuses)
+                            .limit(limit.toLong())
+                            .get()
+                            .await()
+                    }
+                } else {
+                    throw e
+                }
             }
 
-            val entities = snapshot.documents.map { OrderMapper.fromDocument(it) }
+            val entities = snapshot.documents
+                .map { OrderMapper.fromDocument(it) }
+                .sortedByDescending { it.createdAt }
             
             // Transaction Room : Purge atomique de l'ancien historique + insertion des nouvelles entités (anti-données fantômes)
             orderDao.syncHistoricalOrders(entities)
@@ -239,7 +325,7 @@ class AdminOrderRepository(
         } catch (e: Throwable) {
             if (e is FirebaseFirestoreException) {
                 if (e.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION) {
-                    Log.e(TAG, "Index composite Firestore requis pour l'historique ! Créez l'index via ce lien : ${e.message}", e)
+                    Log.w(TAG, "Index composite Firestore requis pour l'historique : ${e.message}")
                 } else if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED || e.code == FirebaseFirestoreException.Code.UNAVAILABLE) {
                     if (e.code == FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED) {
                         FirestoreSyncManager.triggerQuotaExhausted()
@@ -276,13 +362,7 @@ class AdminOrderRepository(
         if (current != null) {
             val updated = current.copy(
                 status = newStatus,
-                orderRecu = (newStatus in listOf("EN_COURS", "PRET", "LIVRE", "TERMINE", "ACCEPTE")),
-                enPleinLavage = (newStatus == "EN_COURS"),
-                orderPret = (newStatus == "PRET"),
-                orderLivree = (newStatus in listOf("LIVRE", "TERMINE")),
-                adminNotes = adminNotes ?: current.adminNotes,
-                adminMessage = adminNotes ?: current.adminMessage,
-                deliveryBoyId = deliveryBoyId ?: current.deliveryBoyId
+                adminMessage = adminNotes ?: current.adminMessage
             )
             orderDao.insertOrder(updated)
         }
@@ -292,19 +372,11 @@ class AdminOrderRepository(
             "id" to orderId,
             "status" to newStatus,
             "statut" to newStatus,
-            "orderRecu" to (newStatus in listOf("EN_COURS", "PRET", "LIVRE", "TERMINE", "ACCEPTE")),
-            "enPleinLavage" to (newStatus == "EN_COURS"),
-            "orderPret" to (newStatus == "PRET"),
-            "orderLivree" to (newStatus in listOf("LIVRE", "TERMINE")),
             "updatedAt" to System.currentTimeMillis()
         )
         if (adminNotes != null) {
-            updates["adminNotes"] = adminNotes
             updates["adminMessage"] = adminNotes
-        }
-        if (deliveryBoyId != null) {
-            updates["deliveryBoyId"] = deliveryBoyId
-            updates["livreurId"] = deliveryBoyId
+            updates["adminNotes"] = adminNotes
         }
 
         val actionId = UUID.randomUUID().toString()
@@ -366,12 +438,9 @@ class AdminOrderRepository(
         val current = orderDao.getOrderById(orderId)
         if (current != null) {
             val updated = current.copy(
-                weight = weightKg,
                 kg = weightKg.toFloat(),
-                totalPrice = totalPrice,
                 prixFinal = totalPrice.toFloat(),
                 timelineStep = 1,
-                adminNotes = adminNotes ?: current.adminNotes,
                 adminMessage = adminNotes ?: current.adminMessage
             )
             orderDao.insertOrder(updated)
@@ -380,10 +449,10 @@ class AdminOrderRepository(
         // 2. Enregistrement file d'attente
         val updates = hashMapOf<String, Any?>(
             "id" to orderId,
-            "weight" to weightKg,
             "kg" to weightKg,
-            "totalPrice" to totalPrice,
+            "weight" to weightKg,
             "prixFinal" to totalPrice,
+            "totalPrice" to totalPrice,
             "timelineStep" to 1,
             "updatedAt" to System.currentTimeMillis()
         )
@@ -557,7 +626,7 @@ class AdminOrderRepository(
             // Mise à jour Room locale
             val current = orderDao.getOrderById(orderId)
             if (current != null) {
-                val updated = current.copy(photoUri = uploadedUrl, appareilPhoto = uploadedUrl)
+                val updated = current.copy(photoUri = uploadedUrl)
                 orderDao.insertOrder(updated)
             }
 

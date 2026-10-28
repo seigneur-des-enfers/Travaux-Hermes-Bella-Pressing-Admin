@@ -38,8 +38,8 @@ class AdminOrderViewModel(
         _isFirestoreQuotaExhausted.value = true
     }
 
-    // Référence au listener Firestore actif pour libération dans onCleared
-    private var activeOrdersListener: ListenerRegistration? = null
+    // Référence aux listeners Firestore actifs pour libération dans onCleared
+    private val activeOrdersListeners = mutableListOf<ListenerRegistration>()
 
     // =========================================================================
     // 1. FLUX RÉACTIFS ROOM (SSOT EXCLUSIF)
@@ -114,11 +114,12 @@ class AdminOrderViewModel(
      * Démarre l'écouteur temps réel filtré sur les commandes actives.
      */
     fun startRealtimeSync() {
-        if (activeOrdersListener != null) return
+        if (activeOrdersListeners.isNotEmpty()) return
 
         _isSyncing.value = true
         try {
-            activeOrdersListener = repository.syncActiveOrdersRealtime()
+            val registrations = repository.syncActiveOrdersRealtime()
+            activeOrdersListeners.addAll(registrations)
             _isOffline.value = false
         } catch (e: Throwable) {
             Log.e(TAG, "Erreur démarrage synchronisation temps réel: ${e.message}", e)
@@ -269,10 +270,11 @@ class AdminOrderViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        // Nettoyage impératif du listener Firestore pour éviter les fuites mémoire et l'épuisement des quotas
-        activeOrdersListener?.remove()
-        activeOrdersListener = null
-        Log.d(TAG, "AdminOrderViewModel détruit: Listener Firestore désabonné avec succès.")
+        // Nettoyage impératif des listeners Firestore pour éviter les fuites mémoire et l'épuisement des quotas
+        activeOrdersListeners.forEach { it.remove() }
+        activeOrdersListeners.clear()
+        repository.stopRealtimeSync()
+        Log.d(TAG, "AdminOrderViewModel détruit: Listeners Firestore désabonnés avec succès.")
     }
 }
 

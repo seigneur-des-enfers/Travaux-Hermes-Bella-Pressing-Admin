@@ -54,10 +54,10 @@ interface AppDao {
         }
     }
 
-    @Query("SELECT * FROM orders WHERE (status IN ('EN_ATTENTE', 'EN_COURS', 'PRET', 'ACCEPTE', 'EN_LIVRAISON') OR (orderLivree = 0 AND status NOT IN ('LIVRE', 'TERMINE', 'ANNULE', 'REJETE'))) AND isArchived = 0 ORDER BY createdAt DESC")
+    @Query("SELECT * FROM orders WHERE status IN ('EN_ATTENTE', 'PROPOSITION_ADMIN', 'EN_COURS', 'PRET', 'ACCEPTE', 'EN_LIVRAISON') AND isArchived = 0 ORDER BY createdAt DESC")
     fun getActiveOrders(): Flow<List<OrderEntity>>
 
-    @Query("SELECT * FROM orders WHERE status IN ('LIVRE', 'TERMINE', 'ANNULE', 'REJETE') OR orderLivree = 1 OR isArchived = 1 ORDER BY createdAt DESC")
+    @Query("SELECT * FROM orders WHERE status IN ('LIVRE', 'TERMINE', 'ANNULE', 'REJETE') OR isArchived = 1 ORDER BY createdAt DESC")
     fun getHistoricalOrders(): Flow<List<OrderEntity>>
 
     @Query("SELECT * FROM orders WHERE userId = :userId AND isArchived = 0 ORDER BY id DESC")
@@ -284,6 +284,18 @@ interface AppDao {
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAnnouncement(announcement: AnnouncementEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAnnouncements(announcements: List<AnnouncementEntity>)
+
+    @Query("DELETE FROM announcements")
+    suspend fun deleteAllAnnouncements()
+
+    @androidx.room.Transaction
+    suspend fun syncAnnouncements(announcements: List<AnnouncementEntity>) {
+        deleteAllAnnouncements()
+        insertAnnouncements(announcements)
+    }
     
     @Query("DELETE FROM announcements WHERE id = :id")
     suspend fun deleteAnnouncement(id: String)

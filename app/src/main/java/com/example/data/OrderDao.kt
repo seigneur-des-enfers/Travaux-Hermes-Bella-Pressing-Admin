@@ -20,8 +20,7 @@ interface OrderDao {
      */
     @Query("""
         SELECT * FROM orders 
-        WHERE (status IN ('EN_ATTENTE', 'EN_COURS', 'PRET', 'ACCEPTE', 'EN_LIVRAISON') 
-               OR (orderLivree = 0 AND status NOT IN ('LIVRE', 'TERMINE', 'ANNULE', 'REJETE')))
+        WHERE status IN ('EN_ATTENTE', 'PROPOSITION_ADMIN', 'EN_COURS', 'PRET', 'ACCEPTE', 'EN_LIVRAISON')
           AND isArchived = 0 
         ORDER BY createdAt DESC
     """)
@@ -34,7 +33,6 @@ interface OrderDao {
     @Query("""
         SELECT * FROM orders 
         WHERE status IN ('LIVRE', 'TERMINE', 'ANNULE', 'REJETE') 
-           OR orderLivree = 1 
            OR isArchived = 1 
         ORDER BY createdAt DESC
     """)

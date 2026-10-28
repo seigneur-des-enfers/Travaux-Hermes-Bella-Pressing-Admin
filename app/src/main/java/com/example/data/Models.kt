@@ -147,9 +147,11 @@ data class OrderEntity(
     val pieces: Int = 0,
     val categorie: String = "",
     val kg: Float = 0f,
-    val lavageType: String = "SIMPLE", // "SIMPLE", "LAVAGE_SECHAGE_PLIAGE", "LAVAGE_SECHAGE_REPASSAGE_PLIAGE", "AUCUN"
+    val lavageType: String = "SIMPLE",
+    val gommagePaire: Int = 0,
+    val gommageImpair: Int = 0,
     val prixFinal: Float = 0f,
-    val status: String = "EN_ATTENTE", // "EN_ATTENTE", "ACCEPTE", "EN_COURS", "TERMINE", "REJETE"
+    val status: String = "EN_ATTENTE", // "EN_ATTENTE", "PROPOSITION_ADMIN", "ACCEPTE", "TERMINE", "REJETE"
     val createdAt: Long = System.currentTimeMillis(),
     val adminMessage: String = "",
     val rating: Int = 0,
@@ -157,10 +159,10 @@ data class OrderEntity(
     val adresseLivraison: String = "",
     val isExpress: Boolean = false,
     val instructionsSpeciales: String = "",
-    val deliveryType: String = "AGENCE", // "AGENCE" or "DOMICILE"
+    val deliveryType: String = "AGENCE", // "AGENCE" ou "DOMICILE"
     val transportFee: Float = 0f,
     val timelineStep: Int = 0, // 0: Envoyée, 1: Pesée/Acceptée, 2: Lavage, 3: Séchage/Repassage, 4: Prête, 5: Terminée
-    val specialItemsData: String = "", // format: "name1:qty1,name2:qty2"
+    val specialItemsData: String = "",
     val pickupDate: String = "",
     val deliveryDate: String = "",
     val photoUri: String = "",
@@ -173,58 +175,10 @@ data class OrderEntity(
     val hasPremiumGuarantee: Boolean = false,
     val insuranceFee: Float = 0f,
     val isArchived: Boolean = false,
-
-    // --- NOUVEAU SCHÉMA: BLOC Order ---
-    val autoCompletionInfos: String = "",
-    val nombrePieces: Double = 0.0,
-    val choixCategory: String = "",
-    val appareilPhoto: String = "", // Bouton/Preuve photo d'origine
-    val lavageSimple: Boolean = false,
-    val lavageSechagePliage: Boolean = false,
-    val lavageSechagePliageRepassage: Boolean = false,
-    val articlesUniquement: Boolean = false,
-    val choixArticleSpeciaux: String = "",
-    val choixArticleGommage: String = "",
-    val estimationKilo: Double = 0.0,
-    
-    // InfosLivraison
-    val depotAgence: Boolean = false,
-    val dateHeureDepot: String = "",
-    val dateHeureRetrait: String = "",
-    val ramassage: Boolean = false,
-    val coordonneesMaps: String = "",
-    
-    val instructionsSpecial: String = "",
-    val serviceExpress: Boolean = false,
-    val garantiVIP: Boolean = false,
-    val saisiCodePromos: String = "",
-    val prixEstimerAutoCalcul: Double = 0.0,
-
-    // --- NOUVEAU SCHÉMA: BLOC TraitementUserOrders ---
-    val orderRecu: Boolean = false,
-    val enPleinLavage: Boolean = false,
-    val enSechage: Boolean = false,
-    val orderPret: Boolean = false,
-    val orderLivree: Boolean = false,
-    val avisUsers: String = "",
-
-    // --- PROGRAMME DE FIDÉLITÉ: Cumul & Dépense ---
-    val fidelityKgUsed: Float = 0f,
-    val fideliteKgUtilise: Double = 0.0,
-    val fidelityCredited: Boolean = false,
-    val fideliteCredite: Boolean = false,
     val usedFreeKgs: Double = 0.0,
-    val isLoyaltyPointsGranted: Boolean = false,
-
-    // --- ENRICHISSEMENT ADMIN & LIVREUR (Offline-First SSOT) ---
-    val weight: Double = 0.0,
-    val totalPrice: Double = 0.0,
-    val adminNotes: String = "",
-    val deliveryBoyId: String = "",
-    val customerName: String = "",
-    val customerPhone: String = "",
-    val deliveryAddress: String = ""
+    val isLoyaltyPointsGranted: Boolean = false
 )
+
 
 @Keep
 @IgnoreExtraProperties
