@@ -1,41 +1,44 @@
-name: Build Android APK
+name: Android APK Build
 
 on:
   push:
     branches:
-      - main
+      - "**"
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build & Package APK
     runs-on: ubuntu-latest
 
-    # FORÇAGE ABSOLU SUR TOUS LES SOUS-PROCESSUS (GRADLE, KOTLIN, KSP)
-    env:
-      _JAVA_OPTIONS: "-Xmx4g -Djava.awt.headless=true -XX:+UseParallelGC"
-
     steps:
-      - name: Checkout du code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configuration de Java 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
+          distribution: temurin
+          java-version: "17"
 
-      - name: Rendre le wrapper Gradle exécutable
-        run: chmod +x ./gradlew
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Compilation de l'APK (Purge Cache, AVEC Daemon)
-        # SUPPRESSION CRITIQUE de --no-daemon pour éviter le crash du contexte IntelliJ de KSP
-        run: ./gradlew clean assembleDebug --no-build-cache
+      - name: Grant execute permission for gradlew
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          fi
 
-      - name: Upload de l'APK
+      - name: Build Debug APK
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug --stacktrace
+          else
+            gradle assembleDebug --stacktrace
+          fi
+
+      - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          retention-days: 1
+          path: "**/*.apk"

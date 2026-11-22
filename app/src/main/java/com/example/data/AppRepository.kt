@@ -183,7 +183,10 @@ class AppRepository(
         try {
             val db = FirebaseFirestore.getInstance()
             val doc = withTimeout(10000L) {
-                var d = db.collection("config").document("main").get().await()
+                var d = db.collection("config").document("global_config").get().await()
+                if (!d.exists()) {
+                    d = db.collection("config").document("main").get().await()
+                }
                 if (!d.exists()) {
                     d = db.collection("general_settings").document("main").get().await()
                 }
